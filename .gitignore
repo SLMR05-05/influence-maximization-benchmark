@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.dll
+*.dylib
+
+# C/C++ Build artifacts
+build/
+cmake-build-*/
+*.o
+*.obj
+*.a
+*.lib
+*.exp
+
+# Python packaging & virtual environments
+.venv/
+venv/
+env/
+dist/
+*.egg-info/
+.eggs/
+
+# IDE & Editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific runtime data & caches
+runs/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local wrapper scripts
+powershell.bat
+powershell.cmd
+
