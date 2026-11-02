@@ -1,0 +1,15 @@
+name: "ego-Facebook"
+identifier: "facebook"
+type: "undirected"
+num_nodes: 4039
+num_edges: 88234
+average_degree: 43.69
+clustering_coefficient: 0.605
+diameter: 8
+classification: "Online Social Network"
+source: "SNAP [8]"
+raw_path: "data/raw/facebook.txt"
+processed_path: "data/processed/facebook.csr"
+metadata_path: "data/metadata/facebook.json"
+default_k_values: [5, 10, 20, 30, 40, 50]
+

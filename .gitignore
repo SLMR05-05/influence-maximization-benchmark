@@ -40,7 +40,20 @@ data/processed/*
 .coverage
 htmlcov/
 
+# SQLite databases (local config)
+data/config.db
+*.db
+
 # Local wrapper scripts
 powershell.bat
 powershell.cmd
+wslrun.sh
 
+# WSL2 / Linux artifacts
+*.so.*  # versioned shared libs
+*.la    # libtool archives
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,15 @@
+name: "NetHEPT"
+identifier: "nethept"
+type: "undirected"
+num_nodes: 15233
+num_edges: 58891
+average_degree: 7.73
+clustering_coefficient: 0.659
+diameter: 15
+classification: "Academic Collaboration Network"
+source: "arXiv / SNAP [15]"
+raw_path: "data/raw/nethept.txt"
+processed_path: "data/processed/nethept.csr"
+metadata_path: "data/metadata/nethept.json"
+default_k_values: [5, 10, 20, 30, 40, 50]
+

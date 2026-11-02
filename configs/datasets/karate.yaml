@@ -1,0 +1,15 @@
+name: "Karate Club"
+identifier: "karate"
+type: "undirected"
+num_nodes: 34
+num_edges: 78
+average_degree: 4.59
+clustering_coefficient: 0.571
+diameter: 5
+classification: "Small Social Network"
+source: "Zachary (1977)"
+raw_path: "data/raw/karate.txt"
+processed_path: "data/processed/karate.csr"
+metadata_path: "data/metadata/karate.json"
+default_k_values: [2, 4, 6, 8]
+

@@ -1,0 +1,15 @@
+name: "Email-Enron"
+identifier: "enron"
+type: "undirected"
+num_nodes: 36692
+num_edges: 183831
+average_degree: 10.02
+clustering_coefficient: 0.497
+diameter: 11
+classification: "Email Communication Network"
+source: "SNAP [8]"
+raw_path: "data/raw/enron.txt"
+processed_path: "data/processed/enron.csr"
+metadata_path: "data/metadata/enron.json"
+default_k_values: [10, 20, 30, 40, 50]
+
