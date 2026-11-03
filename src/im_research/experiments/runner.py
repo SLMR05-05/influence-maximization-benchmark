@@ -29,7 +29,6 @@ from im_research.algorithms.heuristics.degree_discount import DegreeDiscount
 from im_research.algorithms.heuristics.pagerank import PageRankHeuristic
 from im_research.algorithms.greedy.celf import CELF
 from im_research.algorithms.evolutionary.ga import BaselineGA
-from im_research.algorithms.evolutionary.iga import IGA
 
 ALGORITHM_REGISTRY = {
     "degree": lambda **kw: DegreeCentrality(),
@@ -38,8 +37,6 @@ ALGORITHM_REGISTRY = {
     "celf": lambda **kw: CELF(),
     "ga": lambda **kw: BaselineGA(pop_size=kw.get("pop_size", 50), max_generations=kw.get("max_gen", 100)),
     "baseline_ga": lambda **kw: BaselineGA(pop_size=kw.get("pop_size", 50), max_generations=kw.get("max_gen", 100)),
-    "iga": lambda **kw: IGA(pop_size=kw.get("pop_size", 50), max_generations=kw.get("max_gen", 100),
-                            enable_guided_init=True, enable_adaptive_mutation=True),
 }
 
 
@@ -58,7 +55,7 @@ def parse_args():
 
 def run_experiments():
     args = parse_args()
-    selected_algos = args.algos or ["iga", "celf", "ga", "degree_discount", "pagerank", "degree"]
+    selected_algos = args.algos or ["celf", "ga", "degree_discount", "pagerank", "degree"]
 
     print("=" * 70)
     print("      IM-Benchmark-Lab — INFLUENCE MAXIMIZATION EXPERIMENT RUNNER")

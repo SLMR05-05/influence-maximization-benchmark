@@ -8,7 +8,7 @@ class AblationStudy(ctk.CTkFrame):
         self.build_ui()
 
     def build_ui(self):
-        ctk.CTkLabel(self, text="Ablation Study — Đánh Giá Thành Phần IGA", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=10)
+        ctk.CTkLabel(self, text="Ablation Study — Đánh Giá Thành Phần Thuật Toán", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=10)
         tree = ttk.Treeview(self, columns=("Version","Init","Mut","Div","Status"), show="headings", height=5)
         for c, w in [("Version",120),("Init",60),("Mut",60),("Div",60),("Status",80)]:
             tree.heading(c,text=c); tree.column(c,width=w)

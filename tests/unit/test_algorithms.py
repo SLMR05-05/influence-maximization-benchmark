@@ -1,4 +1,4 @@
-"""Unit tests for all Influence Maximization algorithms (Heuristics, Greedy, GA, IGA)."""
+"""Unit tests for all Influence Maximization algorithms (Heuristics, Greedy, GA)."""
 import pytest
 from im_research import _im_core
 from im_research.core.problem import IMProblem
@@ -7,7 +7,6 @@ from im_research.algorithms.heuristics.degree_discount import DegreeDiscount
 from im_research.algorithms.heuristics.pagerank import PageRankHeuristic
 from im_research.algorithms.greedy.celf import CELF
 from im_research.algorithms.evolutionary.ga import BaselineGA
-from im_research.algorithms.evolutionary.iga import IGA
 
 
 @pytest.fixture
@@ -65,10 +64,3 @@ def test_baseline_ga(karate_problem):
     assert len(res.convergence_history) == 6
 
 
-def test_iga(karate_problem):
-    algo = IGA(pop_size=10, max_generations=5, elitism=1, enable_adaptive_mutation=True)
-    res = algo.run(karate_problem, seed=42)
-    assert len(res.best_solution.seed_set) == 3
-    assert res.best_solution.fitness > 0
-    assert len(res.convergence_history) == 6
-    assert res.metadata["enable_adaptive_mutation"] is True

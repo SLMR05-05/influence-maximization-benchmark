@@ -39,7 +39,7 @@ class AlgorithmResult:
 class BaseAlgorithm(ABC):
     """
     Pygmo-inspired Abstract Base Class for all Influence Maximization algorithms
-    (Heuristics, Greedy, GA, IGA, PSO, ACO).
+    (Heuristics, Greedy, GA, PSO, ACO).
     """
     def __init__(self, name: str, config: Dict[str, Any] | None = None):
         self.name = name

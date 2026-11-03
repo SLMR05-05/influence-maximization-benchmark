@@ -148,6 +148,8 @@ class IconSet:
         logo_light = _downscale(draw_atom(size=128, color=BLUE_LIGHT), 36)
         logo_dark  = _downscale(draw_atom(size=128, color=CYAN_DARK), 36)
         self.logo = ctk.CTkImage(light_image=logo_light, dark_image=logo_dark, size=(36, 36))
+        self._cache["atom"] = {"inactive": self.logo, "active": self.logo}
+        self._cache["logo"] = {"inactive": self.logo, "active": self.logo}
 
         # Generators for items
         items = [

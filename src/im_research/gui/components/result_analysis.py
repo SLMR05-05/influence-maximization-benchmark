@@ -18,7 +18,7 @@ class ResultAnalysis(ctk.CTkFrame):
         tree = ttk.Treeview(a, columns=("Algorithm","Best","Mean","Std","Runtime"), show="headings", height=6)
         for c, w in [("Algorithm",120),("Best",80),("Mean",80),("Std",60),("Runtime",100)]:
             tree.heading(c,text=c); tree.column(c,width=w)
-        for row in [("Degree","—","—","—","—"),("CELF","—","—","—","—"),("GA","—","—","—","—"),("IGA","—","—","—","—")]:
+        for row in [("Degree","—","—","—","—"),("CELF","—","—","—","—"),("GA","—","—","—","—")]:
             tree.insert("","end",values=row)
         tree.pack(padx=10,pady=10)
 

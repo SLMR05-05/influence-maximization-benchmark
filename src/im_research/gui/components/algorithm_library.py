@@ -6,7 +6,7 @@ ALGORITHMS = {
     "Heuristic": ["Degree Centrality", "Degree Discount", "PageRank"],
     "Greedy": ["Greedy", "CELF"],
     "Metaheuristic": ["Discrete PSO", "ACO"],
-    "Evolutionary": ["Baseline GA", "IGA (Proposed)"],
+    "Evolutionary": ["Baseline GA"],
 }
 
 class AlgorithmLibrary(ctk.CTkFrame):

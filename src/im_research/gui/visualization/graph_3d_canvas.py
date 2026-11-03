@@ -5,8 +5,8 @@ Features:
 - True 3D perspective projection with depth-faded edges and glowing halos.
 - Auto-spin animation loop (gentle celestial drift).
 - Mouse interaction: drag to rotate, wheel to zoom, click to inspect.
-- Influence Maximization visualization: seed nodes glow golden/ruby, diffusion pulse wave animation.
-- Clean dark cosmic aesthetic matching modern knowledge graph explorers.
+- Influence Maximization visualization: seed nodes glow ruby/amber, diffusion pulse wave animation.
+- Ultra-crisp rendering: compact node radii, screen-space fixed labels, adaptive light/dark palette.
 """
 
 from __future__ import annotations
@@ -19,23 +19,16 @@ import numpy as np
 import networkx as nx
 import customtkinter as ctk
 
-# ── Color Palette (Dark Cyber / Celestial Aesthetic) ──────────────────────────
-COLOR_BG            = "#080b11"
-COLOR_GRID          = "#0d1522"
-COLOR_EDGE_BASE     = "#0c2d48"
-COLOR_EDGE_GLOW     = "#00bcd4"
-COLOR_EDGE_ACTIVE   = "#38bdf8"
-COLOR_NODE_HUB      = "#ffffff"
-COLOR_NODE_HALO     = "#00e5ff"
+# ── Color Palette ─────────────────────────────────────────────────────────────
 COLOR_SEED          = "#ff3366"      # Ruby pink / seed node
-COLOR_ACTIVATED     = "#fbbf24"      # Amber pulse / activated node
+COLOR_ACTIVATED     = "#f59e0b"      # Amber pulse / activated node
 COLOR_COMMUNITIES   = [
-    "#00e5ff",  # Electric Cyan
-    "#818cf8",  # Indigo
-    "#a855f7",  # Purple
-    "#34d399",  # Emerald Mint
-    "#f472b6",  # Rose Pink
-    "#38bdf8",  # Sky Blue
+    "#0284c7",  # Sky Blue
+    "#8b5cf6",  # Violet
+    "#10b981",  # Emerald
+    "#ec4899",  # Pink
+    "#f97316",  # Orange
+    "#06b6d4",  # Cyan
 ]
 
 
@@ -54,7 +47,7 @@ class Graph3DCanvas(tk.Canvas):
     ):
         super().__init__(
             master,
-            bg=COLOR_BG,
+            bg="#ffffff",
             highlightthickness=0,
             borderwidth=0,
             **kw
@@ -119,7 +112,6 @@ class Graph3DCanvas(tk.Canvas):
         self._drag_start_y = event.y
         self._is_dragging = True
 
-        # Check if a node was clicked
         clicked = self._find_node_at_screen(event.x, event.y)
         if clicked is not None:
             self._selected_node = clicked
@@ -136,7 +128,6 @@ class Graph3DCanvas(tk.Canvas):
 
         self.yaw += dx * 0.007
         self.pitch += dy * 0.007
-        # Clamp pitch to avoid gimbal flipping
         self.pitch = max(-1.45, min(1.45, self.pitch))
 
         self._drag_start_x = event.x
@@ -158,14 +149,13 @@ class Graph3DCanvas(tk.Canvas):
             self._hovered_node = hovered
             self.redraw()
 
-    def _find_node_at_screen(self, x: float, y: float, hit_radius: float = 14.0) -> Optional[int]:
-        """Finds closest node within hit_radius, prioritizing nearest in depth."""
+    def _find_node_at_screen(self, x: float, y: float, hit_radius: float = 12.0) -> Optional[int]:
         closest_node = None
         min_depth = float("inf")
 
         for u, (sx, sy, sz, rad) in self._projected_nodes.items():
             dist = math.hypot(x - sx, y - sy)
-            if dist <= max(rad, hit_radius):
+            if dist <= max(rad + 2, hit_radius):
                 if sz < min_depth:
                     min_depth = sz
                     closest_node = u
@@ -181,7 +171,7 @@ class Graph3DCanvas(tk.Canvas):
         self.num_nodes = nx_graph.number_of_nodes()
         self.edges = list(nx_graph.edges())
 
-        # Compute 3D Spring Layout via NetworkX
+        # 3D Spring Layout via NetworkX
         pos_dict = nx.spring_layout(nx_graph, dim=3, iterations=60, seed=42)
         pos_list = [pos_dict[u] for u in sorted(nx_graph.nodes())]
         self.node_positions_3d = np.array(pos_list, dtype=np.float64)
@@ -196,7 +186,7 @@ class Graph3DCanvas(tk.Canvas):
         # Compute degrees
         self.node_degrees = np.array([nx_graph.degree(u) for u in sorted(nx_graph.nodes())], dtype=int)
 
-        # Compute Louvain / Greedy Communities for coloring
+        # Louvain / Greedy Communities for coloring
         try:
             comms = list(nx.community.greedy_modularity_communities(nx_graph))
             self.node_communities = [0] * self.num_nodes
@@ -210,12 +200,11 @@ class Graph3DCanvas(tk.Canvas):
         # Set seed nodes
         self.seed_nodes = set(seed_nodes or self._default_seeds())
         self.activated_nodes = set(self.seed_nodes)
-        self._selected_node = next(iter(self.seed_nodes)) if self.seed_nodes else 0
+        self._selected_node = next(iter(self.seed_nodes)) if self.seed_nodes else (0 if self.num_nodes > 0 else None)
 
         self.redraw()
 
     def _default_seeds(self) -> List[int]:
-        """Chooses top 3-5 highest degree nodes as default seed set."""
         if self.num_nodes == 0:
             return []
         deg_pairs = [(self.node_degrees[u], u) for u in range(self.num_nodes)]
@@ -228,11 +217,8 @@ class Graph3DCanvas(tk.Canvas):
     # ------------------------------------------------------------------ #
 
     def _get_rotation_matrix(self) -> np.ndarray:
-        """Returns 3D rotation matrix for current yaw and pitch."""
         cy, sy = math.cos(self.yaw), math.sin(self.yaw)
         cp, sp = math.cos(self.pitch), math.sin(self.pitch)
-
-        # R = R_pitch * R_yaw
         return np.array([
             [cy, 0.0, sy],
             [sp * sy, cp, -sp * cy],
@@ -251,12 +237,12 @@ class Graph3DCanvas(tk.Canvas):
         # Adaptive Dark / Light mode colors
         mode = ctk.get_appearance_mode().lower()
         is_dark = (mode == "dark")
-        target_bg = "#080b11" if is_dark else "#f8fafc"
+        target_bg = "#080b11" if is_dark else "#ffffff"
         if self.cget("bg") != target_bg:
             self.configure(bg=target_bg)
 
         color_edge_active = "#38bdf8" if is_dark else "#0284c7"
-        color_edge_glow = "#00bcd4" if is_dark else "#0369a1"
+        color_edge_glow = "#00bcd4" if is_dark else "#2563eb"
 
         cx = w / 2.0 + self.pan_x
         cy = h / 2.0 + self.pan_y
@@ -268,8 +254,6 @@ class Graph3DCanvas(tk.Canvas):
         rotated = scaled_coords @ R_mat.T  # Shape: (N, 3)
 
         # 2. Perspective Project
-        # z in camera frame: positive = away, negative = towards camera
-        # D_cam + z is distance from camera
         D_cam = self.focal_length
         z_vals = rotated[:, 2]
         factors = D_cam / (D_cam + z_vals)
@@ -277,20 +261,20 @@ class Graph3DCanvas(tk.Canvas):
         screen_x = cx + rotated[:, 0] * factors
         screen_y = cy + rotated[:, 1] * factors
 
-        # Compute node screen radius based on degree (compact & crisp, fixed scale on zoom)
+        # Screen-space compact node radius (crisp, fine resolution, doesn't balloon)
         max_deg = max(1.0, float(self.node_degrees.max())) if len(self.node_degrees) > 0 else 1.0
         deg_ratio = self.node_degrees / max_deg
-        screen_radii = 2.6 + deg_ratio * 1.2
+        screen_radii = 1.8 + deg_ratio * 1.2  # Compact and crisp!
 
         # Update cache
         self._projected_nodes.clear()
         for u in range(self.num_nodes):
             self._projected_nodes[u] = (
-                screen_x[u], screen_y[u], z_vals[u], screen_radii[u]
+                float(screen_x[u]), float(screen_y[u]), float(z_vals[u]), float(screen_radii[u])
             )
 
-        # 3. Draw Background Cosmic Starfield / Grid Rings
-        self._draw_background_rings(cx, cy, R)
+        # 3. Background Orbit Rings
+        self._draw_background_rings(cx, cy, R, is_dark)
 
         # 4. Render Edges (Depth Sorted)
         edge_data = []
@@ -307,29 +291,26 @@ class Graph3DCanvas(tk.Canvas):
         selected = self._selected_node
 
         for z_mid, u, v in edge_data:
-            # Check if edge is incident to hovered or selected node
             is_active = (hovered in (u, v)) or (selected in (u, v))
             is_diffusion = (u in self.activated_nodes) and (v in self.activated_nodes)
 
             x1, y1 = screen_x[u], screen_y[u]
-            x2, y2 = screen_y[u], screen_y[v]  # Correct coordinate unpacking
-            x2 = screen_x[v]
+            x2, y2 = screen_x[v], screen_y[v]
 
             if is_active:
                 color = color_edge_active
-                width = 2.4
+                width = 2.0
             elif is_diffusion:
                 color = color_edge_glow
-                width = 1.6
+                width = 1.4
             else:
-                # Depth fading: further edges are dimmer/darker
-                norm_z = (z_mid + R) / (2.0 * R)  # 0 (front) to 1 (back)
+                norm_z = (z_mid + R) / (2.0 * R)
                 norm_z = max(0.0, min(1.0, norm_z))
                 if is_dark:
                     color = "#071c2e" if norm_z > 0.65 else ("#0c2d48" if norm_z > 0.35 else "#0369a1")
                 else:
-                    color = "#e2e8f0" if norm_z > 0.65 else ("#cbd5e1" if norm_z > 0.35 else "#64748b")
-                width = 0.9 if norm_z > 0.65 else (1.1 if norm_z > 0.35 else 1.4)
+                    color = "#e2e8f0" if norm_z > 0.65 else ("#cbd5e1" if norm_z > 0.35 else "#94a3b8")
+                width = 0.8 if norm_z > 0.65 else (1.0 if norm_z > 0.35 else 1.2)
 
             self.create_line(x1, y1, x2, y2, fill=color, width=width)
 
@@ -345,20 +326,19 @@ class Graph3DCanvas(tk.Canvas):
             is_hovered = (u == hovered)
             is_selected = (u == selected)
 
-            # Determine colors and compact radius
             comm_id = self.node_communities[u] % len(COLOR_COMMUNITIES)
             comm_color = COLOR_COMMUNITIES[comm_id]
 
             if is_seed:
-                rad = base_rad + 1.2
+                rad = base_rad + 0.8
                 core_color = "#ffffff"
                 halo_color = COLOR_SEED
             elif is_activated:
-                rad = base_rad + 0.8
+                rad = base_rad + 0.5
                 core_color = "#ffffff"
                 halo_color = COLOR_ACTIVATED
             elif deg >= 10 or is_hovered or is_selected:
-                rad = base_rad + 0.5
+                rad = base_rad + 0.4
                 core_color = "#ffffff" if is_dark else "#0284c7"
                 halo_color = "#00e5ff" if is_dark else "#0284c7"
             else:
@@ -366,47 +346,48 @@ class Graph3DCanvas(tk.Canvas):
                 core_color = comm_color
                 halo_color = comm_color
 
-            # A. Draw Tight Outer Halo Ring (only for seeds, active, hovered, or top hubs)
+            # A. Outer Halo Ring
             if self.show_glow and (is_seed or is_hovered or is_selected or deg >= 12):
-                halo_rad = rad + 2.5
+                halo_rad = rad + 2.0
                 self.create_oval(
                     sx - halo_rad, sy - halo_rad, sx + halo_rad, sy + halo_rad,
-                    fill="", outline=halo_color, width=1.2
+                    fill="", outline=halo_color, width=1.0
                 )
 
-            # B. Draw Inner Core Node Disc
+            # B. Inner Core Node Disc
             border_col = ("#ffffff" if is_dark else "#0f172a") if (is_hovered or is_selected) else halo_color
-            border_width = 1.2 if (is_hovered or is_selected or is_seed) else 0.8
+            border_width = 1.0 if (is_hovered or is_selected or is_seed) else 0.7
             self.create_oval(
                 sx - rad, sy - rad, sx + rad, sy + rad,
                 fill=core_color, outline=border_col, width=border_width
             )
 
-            # C. Draw Node Label for ALL nodes (crisp, fixed-size 7pt font, no distorting zoom)
+            # C. Fixed Screen-Space Node Labels for ALL nodes
             if self.show_labels:
                 label_text = f"v{u}"
                 if is_seed:
-                    label_fg = "#ff3366" if is_dark else "#e11d48"
+                    label_fg = "#ff3366" if is_dark else "#dc2626"
                     font_w = "bold"
+                    font_sz = 7
                 elif is_hovered or is_selected:
                     label_fg = "#00e5ff" if is_dark else "#0284c7"
                     font_w = "bold"
+                    font_sz = 7
                 else:
-                    label_fg = "#94a3b8" if is_dark else "#475569"
+                    label_fg = "#94a3b8" if is_dark else "#334155"
                     font_w = "normal"
+                    font_sz = 6
 
                 self.create_text(
-                    sx + rad + 3, sy - 1,
+                    sx + rad + 2.5, sy - 1,
                     text=label_text,
                     fill=label_fg,
-                    font=("Segoe UI", 7, font_w),
+                    font=("Segoe UI", font_sz, font_w),
                     anchor="w"
                 )
 
-    def _draw_background_rings(self, cx: float, cy: float, R: float):
-        """Draws subtle orbital perspective circles in the background."""
-        is_dark = (ctk.get_appearance_mode().lower() == "dark")
-        ring_col = "#0c1824" if is_dark else "#e2e8f0"
+    def _draw_background_rings(self, cx: float, cy: float, R: float, is_dark: bool):
+        ring_col = "#0c1824" if is_dark else "#f1f5f9"
         r_x = R * 1.15
         r_y = R * 0.35 * abs(math.cos(self.pitch))
         self.create_oval(
@@ -425,35 +406,30 @@ class Graph3DCanvas(tk.Canvas):
                 self.yaw -= 2.0 * math.pi
             self.redraw()
 
-        # Diffusion Wave Pulse Animation
         if self.pulse_active and self.graph:
             self.pulse_step += 1
-            if self.pulse_step % 12 == 0:
+            if self.pulse_step % 10 == 0:
                 self._expand_diffusion_step()
 
         self.after(35, self._animation_loop)
 
     def trigger_diffusion_simulation(self):
-        """Initiates a visual step-by-step IC diffusion wave from seed nodes."""
         self.activated_nodes = set(self.seed_nodes)
         self.pulse_active = True
         self.pulse_step = 0
         self.redraw()
 
     def _expand_diffusion_step(self):
-        """Expands activation wave to 1-hop neighbors probabilistically."""
         newly_active = set()
         for u in list(self.activated_nodes):
             for v in self.graph.neighbors(u):
                 if v not in self.activated_nodes:
-                    # 40% chance to activate for visually pleasing demo
                     if np.random.random() < 0.35:
                         newly_active.add(v)
         if newly_active:
             self.activated_nodes.update(newly_active)
             self.redraw()
         else:
-            # Completed
             self.pulse_active = False
 
     def reset_camera(self):
@@ -465,7 +441,6 @@ class Graph3DCanvas(tk.Canvas):
         self.redraw()
 
     def _get_node_info(self, u: int) -> dict:
-        """Collects topological metadata for the clicked node."""
         deg = int(self.node_degrees[u])
         neighbors = list(self.graph.neighbors(u)) if self.graph else []
         clustering = round(float(nx.clustering(self.graph, u)), 4) if self.graph else 0.0
@@ -478,4 +453,3 @@ class Graph3DCanvas(tk.Canvas):
             "is_activated": u in self.activated_nodes,
             "community": self.node_communities[u] if u < len(self.node_communities) else 0,
         }
-
