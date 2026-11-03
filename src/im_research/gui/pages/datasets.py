@@ -103,8 +103,13 @@ class PageDatasets(ctk.CTkFrame):
             top_ctrl,
             values=["Trực quan hóa Mạng lưới 3D (Knowledge Graph)", "Bảng thông số 5 bộ dữ liệu chuẩn"],
             command=self._on_view_change,
-            height=34, font=("Segoe UI", 11, "bold"),
-            selected_color=BLUE, selected_hover_color="#1557b0"
+            height=34,
+            font=("Segoe UI", 11, "bold"),
+            selected_color=ACTIVE_BG,
+            selected_hover_color=ACTIVE_HOVER,
+            unselected_color=("#e2e8f0", "#1e293b"),
+            unselected_hover_color=("#cbd5e1", "#334155"),
+            text_color=("#0f172a", "#f8fafc")
         )
         self.view_selector.set("Trực quan hóa Mạng lưới 3D (Knowledge Graph)")
         self.view_selector.pack(side="left")

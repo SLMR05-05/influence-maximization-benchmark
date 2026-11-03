@@ -13,12 +13,13 @@ from tkinter import messagebox
 
 from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
-from im_research.gui.core.ui_helpers import section_header, metric_card
+from im_research.gui.core.ui_helpers import section_header, metric_card, create_empty_state
 
 
 class PageResults(ctk.CTkScrollableFrame):
-    def __init__(self, master, **kw):
+    def __init__(self, master, on_switch_tab=None, **kw):
         super().__init__(master, fg_color=BG_APP, **kw)
+        self.on_switch_tab = on_switch_tab
         self._build()
 
     def _build(self):
@@ -28,22 +29,12 @@ class PageResults(ctk.CTkScrollableFrame):
             "Đánh giá độ bao phủ trung bình qua Monte Carlo Simulation độc lập (R = 10,000)"
         )
 
-        tbl = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,
-                           border_width=1, border_color=BORDER_COLOR)
-        tbl.pack(fill="x", pady=(0, 16))
-
-        headers = ["Thuật toán", "Dataset", "k", "Spread trung bình (σ)", "Độ lệch chuẩn (std)", "Thời gian (s)", "Hạng"]
-        for c, h in enumerate(headers):
-            tbl.columnconfigure(c, weight=1 if c in (0, 3) else 0)
-            ctk.CTkLabel(tbl, text=h, font=("Segoe UI", 10, "bold"),
-                         text_color=SUBTEXT_FG).grid(row=0, column=c, padx=12, pady=10, sticky="w")
-
-        ctk.CTkFrame(tbl, height=1, fg_color=BORDER_COLOR).grid(
-            row=1, column=0, columnspan=len(headers), sticky="ew", padx=8)
-
-        # Try loading latest real experiment results from runs/latest_results.json
+        # Check for real experiment results from runs/latest_results.json
         results_file = PROJECT_ROOT / "runs" / "latest_results.json"
         display_rows = []
+        ds_name = "Karate Club"
+        k_val = "10"
+
         if results_file.exists():
             try:
                 import json
@@ -65,19 +56,38 @@ class PageResults(ctk.CTkScrollableFrame):
                         col
                     ))
             except Exception:
-                pass
+                display_rows = []
+
+        card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,
+                            border_width=1, border_color=BORDER_COLOR)
+        card.pack(fill="x", pady=(0, 16))
 
         if display_rows:
+            headers = ["Thuật toán", "Dataset", "k", "Spread trung bình (σ)", "Độ lệch chuẩn (std)", "Thời gian (s)", "Hạng"]
+            for c, h in enumerate(headers):
+                card.columnconfigure(c, weight=1 if c in (0, 3) else 0)
+                ctk.CTkLabel(card, text=h, font=("Segoe UI", 10, "bold"),
+                             text_color=SUBTEXT_FG).grid(row=0, column=c, padx=12, pady=10, sticky="w")
+
+            ctk.CTkFrame(card, height=1, fg_color=BORDER_COLOR).grid(
+                row=1, column=0, columnspan=len(headers), sticky="ew", padx=8)
+
             for r_idx, (algo, ds, k, sp, std, tm, rk, col) in enumerate(display_rows, start=2):
-                ctk.CTkLabel(tbl, text=algo, font=("Segoe UI", 11, "bold"), text_color=col).grid(row=r_idx, column=0, padx=12, pady=8, sticky="w")
-                ctk.CTkLabel(tbl, text=ds, font=FONT_MAIN, text_color=HEADER_FG).grid(row=r_idx, column=1, padx=12, pady=8, sticky="w")
-                ctk.CTkLabel(tbl, text=k, font=FONT_MAIN, text_color=HEADER_FG).grid(row=r_idx, column=2, padx=12, pady=8, sticky="w")
-                ctk.CTkLabel(tbl, text=sp, font=("Segoe UI", 11, "bold"), text_color=HEADER_FG).grid(row=r_idx, column=3, padx=12, pady=8, sticky="w")
-                ctk.CTkLabel(tbl, text=std, font=FONT_MAIN, text_color=SUBTEXT_FG).grid(row=r_idx, column=4, padx=12, pady=8, sticky="w")
-                ctk.CTkLabel(tbl, text=tm, font=FONT_MAIN, text_color=HEADER_FG).grid(row=r_idx, column=5, padx=12, pady=8, sticky="w")
-                ctk.CTkLabel(tbl, text=rk, font=("Segoe UI", 11, "bold"), text_color=BLUE).grid(row=r_idx, column=6, padx=12, pady=8, sticky="w")
+                ctk.CTkLabel(card, text=algo, font=("Segoe UI", 11, "bold"), text_color=col).grid(row=r_idx, column=0, padx=12, pady=8, sticky="w")
+                ctk.CTkLabel(card, text=ds, font=FONT_MAIN, text_color=HEADER_FG).grid(row=r_idx, column=1, padx=12, pady=8, sticky="w")
+                ctk.CTkLabel(card, text=k, font=FONT_MAIN, text_color=HEADER_FG).grid(row=r_idx, column=2, padx=12, pady=8, sticky="w")
+                ctk.CTkLabel(card, text=sp, font=("Segoe UI", 11, "bold"), text_color=HEADER_FG).grid(row=r_idx, column=3, padx=12, pady=8, sticky="w")
+                ctk.CTkLabel(card, text=std, font=FONT_MAIN, text_color=SUBTEXT_FG).grid(row=r_idx, column=4, padx=12, pady=8, sticky="w")
+                ctk.CTkLabel(card, text=tm, font=FONT_MAIN, text_color=HEADER_FG).grid(row=r_idx, column=5, padx=12, pady=8, sticky="w")
+                ctk.CTkLabel(card, text=rk, font=("Segoe UI", 11, "bold"), text_color=BLUE).grid(row=r_idx, column=6, padx=12, pady=8, sticky="w")
         else:
-            empty_frame = ctk.CTkFrame(tbl, fg_color="transparent")
-            empty_frame.grid(row=2, column=0, columnspan=len(headers), pady=40, sticky="ew")
-            ctk.CTkLabel(empty_frame, text="Chưa có kết quả thực nghiệm mới nhất", font=("Segoe UI", 13, "bold"), text_color=SUBTEXT_FG).pack(pady=(8, 2))
-            ctk.CTkLabel(empty_frame, text="Chuyển sang trang 'Thí nghiệm' để thiết lập tham số và khởi chạy.", font=FONT_MAIN, text_color=SUBTEXT_FG).pack()
+            # Graphical Empty State with Illustration Image
+            cmd = (lambda: self.on_switch_tab("experiments")) if self.on_switch_tab else None
+            create_empty_state(
+                parent=card,
+                title="Chưa có kết quả thực nghiệm",
+                subtitle="Hệ thống chưa ghi nhận lần chạy thí nghiệm nào. Hãy thiết lập tham số và khởi chạy để xem kết quả tại đây.",
+                action_text="Khởi chạy thí nghiệm mới ▶",
+                action_command=cmd,
+                pady=36
+            )

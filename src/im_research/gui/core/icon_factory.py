@@ -136,6 +136,46 @@ def draw_settings(size=128, color=GRAY_LIGHT, stroke_width=7):
     d.ellipse([cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner], outline=color, width=stroke_width)
     return im
 
+def draw_sun(size=128, color=GRAY_LIGHT, stroke_width=7):
+    """Draws sun icon for light mode."""
+    im = _canvas(size)
+    d = ImageDraw.Draw(im)
+    cx, cy = 64, 64
+    r_sun = 22
+    d.ellipse([cx - r_sun, cy - r_sun, cx + r_sun, cy + r_sun], outline=color, width=stroke_width)
+    # 8 rays
+    ray_in, ray_out = 34, 48
+    for i in range(8):
+        rad = math.radians(i * 45)
+        x1 = cx + math.cos(rad) * ray_in
+        y1 = cy + math.sin(rad) * ray_in
+        x2 = cx + math.cos(rad) * ray_out
+        y2 = cy + math.sin(rad) * ray_out
+        d.line([(x1, y1), (x2, y2)], fill=color, width=stroke_width, joint="curve")
+    return im
+
+def draw_moon(size=128, color=GRAY_LIGHT, stroke_width=7):
+    """Draws crescent moon icon for dark mode."""
+    im = _canvas(size)
+    d = ImageDraw.Draw(im)
+    # Draw crescent using overlapping circles on alpha canvas
+    moon_layer = _canvas(size)
+    md = ImageDraw.Draw(moon_layer)
+    md.ellipse([26, 24, 102, 100], fill=color)
+    # Cut out inner circle with transparent fill
+    cut_layer = _canvas(size)
+    cd = ImageDraw.Draw(cut_layer)
+    cd.ellipse([46, 18, 116, 94], fill=(0, 0, 0, 255))
+    # Subtract mask
+    mask = cut_layer.split()[-1]
+    # Invert mask and apply
+    moon_alpha = moon_layer.split()[-1]
+    from PIL import ImageChops
+    final_alpha = ImageChops.subtract(moon_alpha, mask)
+    moon_layer.putalpha(final_alpha)
+    im.alpha_composite(moon_layer)
+    return im
+
 class IconSet:
     """Provides CTkImage objects for active (blue/white) and inactive (light/dark adapt) states."""
     def __init__(self, target_size=24):
@@ -160,6 +200,8 @@ class IconSet:
             ("flask",      draw_flask),
             ("document",   draw_document),
             ("settings",   draw_settings),
+            ("sun",        draw_sun),
+            ("moon",       draw_moon),
         ]
 
         for name, fn in items:

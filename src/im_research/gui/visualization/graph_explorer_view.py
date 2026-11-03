@@ -2,8 +2,9 @@
 3D Knowledge Graph & Network Explorer View.
 Replicates the dark cyber aesthetic of modern interactive knowledge graphs:
 - 3D force-directed layout with continuous orbital rotation.
-- Glowing cyan/electric blue lines and vertices.
-- Seed node highlighting and interactive diffusion wave simulation.
+- Progressive traveling edge diffusion animation: colors travel gradually along edges from node to node.
+- Real-time traveling photon particles and shockwave activation ripples.
+- Full multi-input zooming: mouse wheel, laptop trackpad pinch-to-zoom (Control-MouseWheel), on-screen buttons.
 - Node Inspector sidebar with topological metrics and neighbor links.
 - 1-click WebGL GPU ultra-mode export to browser.
 """
@@ -89,6 +90,13 @@ class GraphExplorerView(ctk.CTkFrame):
         )
         self.lbl_dataset_mode.pack(side="left", padx=(4, 10), pady=10)
 
+        # Live Diffusion Status indicator
+        self.lbl_diffusion_status = ctk.CTkLabel(
+            top_bar, text="",
+            font=("Segoe UI", 10, "bold"), text_color="#f59e0b"
+        )
+        self.lbl_diffusion_status.pack(side="left", padx=(10, 10), pady=10)
+
         # Action Buttons (Right)
         btn_box = ctk.CTkFrame(top_bar, fg_color="transparent")
         btn_box.pack(side="right", padx=16, pady=8)
@@ -143,9 +151,45 @@ class GraphExplorerView(ctk.CTkFrame):
         self.right_sidebar.pack(side="right", fill="y")
         self._build_right_sidebar()
 
-        # C. Center: 3D Canvas
-        self.canvas_3d = Graph3DCanvas(body, on_node_selected=self._on_node_selected)
-        self.canvas_3d.pack(side="left", fill="both", expand=True)
+        # C. Center: 3D Canvas Area with On-Screen Controls
+        center_container = ctk.CTkFrame(body, fg_color="transparent")
+        center_container.pack(side="left", fill="both", expand=True)
+
+        self.canvas_3d = Graph3DCanvas(
+            center_container,
+            on_node_selected=self._on_node_selected,
+            on_zoom_changed=self._on_canvas_zoom,
+            on_diffusion_status=self._on_diffusion_status
+        )
+        self.canvas_3d.pack(fill="both", expand=True)
+
+        # On-Canvas Floating Zoom Overlay (Bottom-Right)
+        zoom_overlay = ctk.CTkFrame(
+            center_container,
+            fg_color=("#ffffff", "#131b2e"),
+            corner_radius=8,
+            border_width=1,
+            border_color=BORDER_DARK
+        )
+        zoom_overlay.place(relx=0.97, rely=0.95, anchor="se")
+
+        ctk.CTkButton(
+            zoom_overlay, text="+", width=28, height=28, font=("Segoe UI", 13, "bold"),
+            fg_color="transparent", hover_color=BTN_HOVER, text_color=TEXT_WHITE,
+            command=self.canvas_3d.zoom_in
+        ).pack(side="left", padx=2, pady=2)
+
+        ctk.CTkButton(
+            zoom_overlay, text="−", width=28, height=28, font=("Segoe UI", 13, "bold"),
+            fg_color="transparent", hover_color=BTN_HOVER, text_color=TEXT_WHITE,
+            command=self.canvas_3d.zoom_out
+        ).pack(side="left", padx=2, pady=2)
+
+        ctk.CTkButton(
+            zoom_overlay, text="⟲", width=28, height=28, font=("Segoe UI", 12, "bold"),
+            fg_color="transparent", hover_color=BTN_HOVER, text_color=TEXT_WHITE,
+            command=self._reset_camera
+        ).pack(side="left", padx=2, pady=2)
 
     # ------------------------------------------------------------------ #
     #  Left Sidebar Builder                                              #
@@ -195,7 +239,7 @@ class GraphExplorerView(ctk.CTkFrame):
         ctk.CTkLabel(self.left_sidebar, text="Thu phóng (Zoom):", font=("Segoe UI", 10),
                      text_color=TEXT_MUTED, anchor="w").pack(fill="x", padx=10, pady=(10, 2))
         self.zoom_slider = ctk.CTkSlider(
-            self.left_sidebar, from_=0.4, to=2.5, number_of_steps=30,
+            self.left_sidebar, from_=0.25, to=5.0, number_of_steps=50,
             progress_color=ACCENT_CYAN, command=self._on_zoom_change
         )
         self.zoom_slider.set(1.0)
@@ -210,6 +254,7 @@ class GraphExplorerView(ctk.CTkFrame):
 
         comms = [
             ("Hạt giống (Seeds S)", ACCENT_SEED),
+            ("Đã kích hoạt (Cascade)", "#f59e0b"),
             ("Đỉnh trung tâm (Hubs)", ("#0284c7", "#ffffff")),
             ("Cụm cộng đồng 1", "#0284c7"),
             ("Cụm cộng đồng 2", "#8b5cf6"),
@@ -228,10 +273,12 @@ class GraphExplorerView(ctk.CTkFrame):
         ctk.CTkLabel(self.left_sidebar, text="HƯỚNG DẪN TƯƠNG TÁC", font=("Segoe UI", 11, "bold"),
                      text_color=ACCENT_CYAN, anchor="w").pack(fill="x", padx=10, pady=(0, 6))
         tips = [
-            "• Chuột trái + kéo: Xoay khối cầu 3D",
-            "• Cuộn chuột: Phóng to / thu nhỏ",
-            "• Nhấp đỉnh: Xem thuộc tính chi tiết",
-            "• Rà chuột: Nổi bật mạng lân cận (ego)",
+            "• Cuộn chuột hoặc chụm 2 ngón (Trackpad Pinch) để thu phóng",
+            "• Nhấp đúp chuột: Phóng to nhanh 1.3x",
+            "• Nút [+]/[−] góc phải: Thu phóng 1 chạm",
+            "• Kéo chuột trái: Xoay góc nhìn khối cầu 3D",
+            "• Nút Lan truyền: Tín hiệu chạy dọc cạnh từ hạt giống",
+            "• Nhấp đỉnh: Xem thuộc tính & lân cận",
         ]
         for t in tips:
             ctk.CTkLabel(self.left_sidebar, text=t, font=("Segoe UI", 9),
@@ -341,7 +388,6 @@ class GraphExplorerView(ctk.CTkFrame):
             density_val = 0.0108
             badge_text = "✓ Dữ liệu thật SNAP [8] (3D: Lõi hạt giống)"
 
-            # Extract real seed-cluster subgraph around top 5 hubs for silky smooth 60 FPS 3D canvas
             degrees = dict(g_full.degree())
             top_seeds = sorted(degrees.keys(), key=lambda u: degrees[u], reverse=True)[:5]
             sub_nodes = set(top_seeds)
@@ -414,6 +460,7 @@ class GraphExplorerView(ctk.CTkFrame):
         self.full_graph = g_full
         self.current_graph = display_g
         self.lbl_dataset_mode.configure(text=badge_text)
+        self.lbl_diffusion_status.configure(text="")
 
         # Update right sidebar stats card
         self.lbl_nodes.configure(text=f"Số đỉnh (n): {full_n:,}")
@@ -473,10 +520,29 @@ class GraphExplorerView(ctk.CTkFrame):
         self.canvas_3d.zoom = float(val)
         self.canvas_3d.redraw()
 
+    def _on_canvas_zoom(self, zoom_val: float):
+        """Syncs sidebar zoom slider when zooming via mouse wheel, touchpad or gestures."""
+        if hasattr(self, "zoom_slider"):
+            self.zoom_slider.set(round(zoom_val, 2))
+
+    def _on_diffusion_status(self, step: int, active: int, total: int, is_running: bool):
+        """Displays real-time cascade progress badge."""
+        pct = (active / total * 100.0) if total > 0 else 0.0
+        if is_running:
+            self.lbl_diffusion_status.configure(
+                text=f"▶ Lan truyền: Bước t={step} | Đã kích hoạt: {active}/{total} đỉnh ({pct:.1f}%)",
+                text_color="#f59e0b"
+            )
+        else:
+            self.lbl_diffusion_status.configure(
+                text=f"✓ Hoàn tất lan truyền: {active}/{total} đỉnh ({pct:.1f}%)",
+                text_color="#10b981"
+            )
+
     def _on_node_selected(self, u: int, info: dict):
         self.lbl_node_id.configure(text=f"Đỉnh: v{u}")
-        status = "Hạt giống (Seed S) ★" if info["is_seed"] else ("Đã kích hoạt" if info["is_activated"] else "Bình thường")
-        color = ACCENT_SEED if info["is_seed"] else (ACCENT_CYAN if info["is_activated"] else TEXT_MUTED)
+        status = "Hạt giống (Seed S) ★" if info["is_seed"] else ("Đã kích hoạt (Cascade)" if info["is_activated"] else "Bình thường")
+        color = ACCENT_SEED if info["is_seed"] else ("#f59e0b" if info["is_activated"] else TEXT_MUTED)
         self.lbl_node_status.configure(text=f"Trạng thái: {status}", text_color=color)
         self.lbl_node_deg.configure(text=f"Bậc liên kết: {info['degree']}")
         self.lbl_node_clust.configure(text=f"Gom cụm: {info['clustering']:.4f}")

@@ -17,7 +17,10 @@ import gzip
 import shutil
 
 import networkx as nx
-from im_research import _im_core
+try:
+    from im_research import _im_core
+except ImportError:
+    _im_core = None
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 

@@ -12,7 +12,7 @@ import tkinter as tk
 
 from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
-from im_research.gui.core.ui_helpers import section_header, metric_card
+from im_research.gui.core.ui_helpers import section_header, metric_card, create_empty_state
 
 ALGORITHMS = [
     {
@@ -79,16 +79,20 @@ class PageDashboard(ctk.CTkScrollableFrame):
             "Nền tảng thực nghiệm & đánh giá thuật toán Metaheuristic cho bài toán Tối đa hóa Lan truyền (IM)"
         )
 
+        # Count real runs in runs directory
+        runs_dir = PROJECT_ROOT / "runs"
+        exp_count = len(list(runs_dir.glob("EXP_*"))) if runs_dir.exists() else 0
+
         # ── Stat Cards Grid ───────────────────────────────────────────────────
         grid = ctk.CTkFrame(self, fg_color="transparent")
         grid.pack(fill="x", pady=(0, 14))
         for c in range(4):
             grid.columnconfigure(c, weight=1)
 
-        metric_card(grid, "Thuật toán so sánh", "6", "IGA + 5 Baselines", RED, 0, 0)
-        metric_card(grid, "Bộ dữ liệu chuẩn", "5", "34 đến 36.692 đỉnh", BLUE, 1, 0)
-        metric_card(grid, "C++ Core Engine", "OpenMP", "Đa luồng song song", GREEN, 2, 0)
-        metric_card(grid, "Mô hình lan truyền", "IC / LT", "Độc lập & Ngưỡng", PURPLE, 3, 0)
+        metric_card(grid, "Tổng số thí nghiệm", str(exp_count), f"{exp_count} lượt chạy hoàn thành", BLUE if exp_count > 0 else SUBTEXT_FG, 0, 0)
+        metric_card(grid, "Bộ dữ liệu chuẩn", "5 / 5", "Dữ liệu gốc sẵn sàng", GREEN, 1, 0)
+        metric_card(grid, "C++ Core Engine", "OpenMP", "Đa luồng song song", PURPLE, 2, 0)
+        metric_card(grid, "Thuật toán thư viện", "6", "IGA + 5 Baselines", RED, 3, 0)
 
         # ── Quick Action Banner ───────────────────────────────────────────────
         banner = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,
@@ -111,8 +115,27 @@ class PageDashboard(ctk.CTkScrollableFrame):
             command=lambda: self.on_switch_tab("experiments")
         ).pack(side="right")
 
+        # ── Recent Experiments Card (Shows Empty State Image if no runs) ──────
+        section_header(self, "Thí nghiệm gần nhất (Recent Experiments)", "Lượt chạy thực nghiệm mới nhất được ghi nhận")
+        exp_card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,
+                                border_width=1, border_color=BORDER_COLOR)
+        exp_card.pack(fill="x", pady=(0, 16))
+
+        latest_results = PROJECT_ROOT / "runs" / "latest_results.json"
+        if latest_results.exists() and exp_count > 0:
+            pass
+        else:
+            create_empty_state(
+                parent=exp_card,
+                title="Chưa có lượt chạy thí nghiệm nào",
+                subtitle="Hệ thống đã chuẩn bị sẵn 5 bộ dữ liệu gốc và lõi C++ OpenMP. Hãy tạo lượt chạy mới để ghi nhận dữ liệu.",
+                action_text="Khởi chạy thí nghiệm ngay ▶",
+                action_command=lambda: self.on_switch_tab("experiments"),
+                pady=28
+            )
+
         # ── Benchmark Algorithms Overview Table ───────────────────────────────
-        section_header(self, "Danh sách thuật toán trong thư viện", "Phân loại theo cơ chế tối ưu hóa và độ phức tạp")
+        section_header(self, "Danh sách thuật toán trong thư viện", "Phân loại theo cơ chế tối ưu hóa và độ phức tạp tính toán")
 
         tbl = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,
                            border_width=1, border_color=BORDER_COLOR)

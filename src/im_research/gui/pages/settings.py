@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""Page module."""
+"""Settings Page — Configuration, Hyperparameters & Environment Info."""
 import sys
+import platform
+import os
 from pathlib import Path
+
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
+if str(PROJECT_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import messagebox, filedialog
+
 from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
 from im_research.gui.core.ui_helpers import section_header, metric_card
+
+
 class PageSettings(ctk.CTkScrollableFrame):
     def __init__(self, master, **kw):
         super().__init__(master, fg_color=BG_APP, **kw)
@@ -20,7 +26,7 @@ class PageSettings(ctk.CTkScrollableFrame):
         section_header(
             self,
             "Cài đặt hệ thống & Môi trường tính toán",
-            "Tùy chỉnh giao diện, C++ Engine, Experiment Defaults, Algorithm Hyperparameters, Paths, Output, Performance, Notifications"
+            "Tùy chỉnh giao diện, Lõi tính toán C++, Siêu tham số thuật toán, Đường dẫn và Thông tin môi trường"
         )
 
         # ── 1. Appearance & Theme ─────────────────────────────────────────────
@@ -29,57 +35,79 @@ class PageSettings(ctk.CTkScrollableFrame):
         theme_row.pack(fill="x", padx=16, pady=4)
         ctk.CTkLabel(theme_row, text="Chế độ:", font=FONT_MAIN, width=200, anchor="w", text_color=SUBTEXT_FG).pack(side="left")
         curr = get_theme()
-        self.theme_menu = ctk.CTkOptionMenu(theme_row, width=220, values=["Sáng (Light)", "Tối (Dark)", "Theo hệ thống (System)"], command=self._on_theme)
+        self.theme_menu = ctk.CTkOptionMenu(
+            theme_row, width=220,
+            values=["Sáng (Light)", "Tối (Dark)", "Theo hệ thống (System)"],
+            command=self._on_theme
+        )
         self.theme_menu.set("Tối (Dark)" if curr == "dark" else ("Sáng (Light)" if curr == "light" else "Theo hệ thống (System)"))
         self.theme_menu.pack(side="left")
 
         # ── 2. C++ Engine ─────────────────────────────────────────────────────
-        self._card("2. C++ Engine (Lõi tính toán)")
-        for lbl, val in [("Đường dẫn build:", "cpp_core/build/"), ("Chế độ biên dịch:", "Release (-O3 -march=native -fopenmp)"), ("Số luồng OpenMP:", "Auto (12)"), ("R_search (MC Search):", "200"), ("R_val (MC Validation):", "10000"), ("Timeout (giây):", "300")]:
+        self._card("2. C++ Engine (Lõi tính toán song song)")
+        for lbl, val in [
+            ("Lõi tính toán:", "C++17 OpenMP CSR Fast Evaluator"),
+            ("Chế độ biên dịch:", "Release (-O3 -march=native -fopenmp)"),
+            ("Số luồng OpenMP:", f"Auto ({os.cpu_count() or 8} threads)"),
+            ("R_search (MC Search):", "200"),
+            ("R_val (MC Validation):", "10,000"),
+            ("Môi trường thực thi:", "WSL2 Ubuntu 24.04 LTS"),
+        ]:
             self._row(lbl, val)
 
         # ── 3. Experiment Defaults ────────────────────────────────────────────
         self._card("3. Experiment Defaults (Mặc định thí nghiệm)")
-        for lbl, val in [("Dataset mặc định:", "Karate Club"), ("Mô hình lan truyền:", "IC (p=0.1)"), ("Giá trị k mặc định:", "5,10,15,20,25,30,40,50"), ("Số lần lặp độc lập:", "30"), ("Ngân sách đánh giá (Max evals):", "10000"), ("Auto-save checkpoint:", "Bật"), ("Resume on crash:", "Bật")]:
+        for lbl, val in [
+            ("Dataset mặc định:", "Karate Club"),
+            ("Mô hình lan truyền:", "IC (Independent Cascade, p=0.1)"),
+            ("Giá trị k khảo sát:", "5, 10, 15, 20, 25, 30, 40, 50"),
+            ("Số lần lặp độc lập (Runs):", "30"),
+            ("Ngân sách đánh giá (Max evals):", "10,000"),
+            ("Tự động lưu điểm kiểm tra:", "Bật"),
+        ]:
             self._row(lbl, val)
 
         # ── 4. Algorithm Hyperparameters ───────────────────────────────────────
-        self._card("4. Algorithm Hyperparameters (Siêu tham số)")
-        for lbl, val in [("GA — population:", "50"), ("GA — generations:", "200"), ("GA — mutation_rate:", "0.10"), ("PSO — swarm_size:", "30"), ("PSO — inertia:", "0.7"), ("ACO — ant_count:", "20"), ("ACO — evaporation:", "0.5")]:
+        self._card("4. Algorithm Hyperparameters (Siêu tham số thuật toán)")
+        for lbl, val in [
+            ("IGA — Kích thước quần thể (pop_size):", "50"),
+            ("IGA — Số thế hệ tối đa (max_gen):", "200"),
+            ("IGA — Tỷ lệ lai ghép thích nghi (crossover_rate):", "0.85"),
+            ("IGA — Xác suất đột biến cơ sở (pm_base):", "0.10"),
+            ("IGA — Ngưỡng phân hóa đa dạng (threshold_div):", "0.30"),
+            ("IGA — Số cá thể ưu tú bảo tồn (elite_count):", "2"),
+            ("GA Baseline — Kích thước quần thể:", "50"),
+            ("GA Baseline — Số thế hệ tối đa:", "200"),
+            ("GA Baseline — Xác suất đột biến ngẫu nhiên:", "0.10"),
+            ("PageRank — Hệ số cản ngẫu nhiên (damping):", "0.85"),
+            ("Degree Discount — Xác suất truyền p:", "0.10"),
+        ]:
             self._row(lbl, val)
 
         # ── 5. Dataset & Paths ────────────────────────────────────────────────
-        self._card("5. Dataset & Paths (Đường dẫn & Dữ liệu)")
-        for lbl, val in [("Workspace root:", "D:/Khanh/Đồ án chuyên ngành"), ("Thư mục runs/:", "runs/"), ("Thư mục data/:", "data/"), ("Thư mục configs/:", "configs/"), ("Auto-download datasets:", "Bật"), ("Cache parsed graphs:", "Bật")]:
+        self._card("5. Dataset & Paths (Cấu trúc thư mục & Đường dẫn hệ thống)")
+        for lbl, val in [
+            ("Thư mục gốc dự án (Workspace Root):", "./ (Thư mục làm việc hiện tại)"),
+            ("Thư mục dữ liệu chuẩn (Benchmark Datasets):", "data/raw/"),
+            ("Thư mục kết quả thực nghiệm:", "runs/"),
+            ("Cơ sở dữ liệu cấu hình & tham số SQLite:", "data/config.db"),
+            ("Thư mục kịch bản & siêu tham số:", "configs/"),
+            ("Thư mục mã nguồn C++ Core (OpenMP):", "cpp_core/"),
+            ("Thư mục xuất báo cáo & luận văn:", "runs/reports/"),
+            ("Trạng thái 5 bộ dữ liệu benchmark chuẩn:", "100% Sẵn sàng (Karate, Dolphins, Facebook, NetHEPT, Enron)"),
+        ]:
             self._row(lbl, val)
 
-        # ── 6. Output & Reporting ─────────────────────────────────────────────
-        self._card("6. Output & Reporting (Xuất báo cáo)")
-        for lbl, val in [("Định dạng xuất:", "CSV, Excel, PDF, LaTeX"), ("DPI biểu đồ:", "300"), ("Font biểu đồ:", "Segoe UI"), ("Ngôn ngữ báo cáo:", "Tiếng Việt"), ("Auto-generate report:", "Bật"), ("Thư mục xuất:", "runs/reports/")]:
-            self._row(lbl, val)
-
-        # ── 7. Performance & Benchmark ─────────────────────────────────────────
-        self._card("7. Performance & Benchmark (Hiệu năng)")
-        for lbl, val in [("Chế độ đo thời gian:", "Wall-clock"), ("Warm-up runs:", "1"), ("GC control:", "Bật"), ("Memory profiling:", "Tắt"), ("Parallel jobs:", "Auto (12)")]:
-            self._row(lbl, val)
-
-        # ── 8. Notifications ───────────────────────────────────────────────────
-        self._card("8. Notifications (Thông báo)")
-        for lbl, val in [("Desktop notification:", "Bật"), ("Sound alert:", "Tắt"), ("Email notification:", "Tắt"), ("Log level:", "INFO")]:
-            self._row(lbl, val)
-
-        # ── 9. Keyboard Shortcuts ─────────────────────────────────────────────
-        self._card("9. Keyboard Shortcuts (Phím tắt)")
-        shortcuts = [("Ctrl+S", "Lưu cấu hình"), ("Ctrl+R", "Chạy experiment"), ("Ctrl+E", "Export kết quả"), ("Ctrl+T", "Toggle theme"), ("F5", "Refresh data"), ("Esc", "Hủy experiment")]
-        for key, desc in shortcuts:
-            r = ctk.CTkFrame(self, fg_color="transparent")
-            r.pack(fill="x", padx=16, pady=2)
-            ctk.CTkLabel(r, text=key, font=("Consolas", 10, "bold"), width=120, anchor="w", text_color=BLUE).pack(side="left")
-            ctk.CTkLabel(r, text=desc, font=FONT_MAIN, anchor="w", text_color=HEADER_FG).pack(side="left")
-
-        # ── 10. Environment Info ──────────────────────────────────────────────
-        self._card("10. Environment Info (Thông tin môi trường)")
-        for lbl, val in [("Python:", "3.12.3"), ("g++:", "13.3.0"), ("CMake:", "3.28.3"), ("pybind11:", "3.1.0"), ("RAM:", "16 GB"), ("WSL2:", "Ubuntu 24.04"), ("Database:", "data/config.db")]:
+        # ── 6. Environment Info ──────────────────────────────────────────────
+        self._card("6. Environment Info (Thông tin môi trường)")
+        for lbl, val in [
+            ("Python GUI runtime:", f"{platform.python_version()} ({platform.architecture()[0]})"),
+            ("Hệ điều hành:", f"{platform.system()} {platform.release()}"),
+            ("Bộ vi xử lý:", platform.processor() or "x86_64"),
+            ("Số lõi CPU logic:", str(os.cpu_count() or "N/A")),
+            ("Giao diện đồ họa:", "CustomTkinter 5.2+ (Adaptive Multi-Theme)"),
+            ("Lõi đồ họa mạng lưới 3D:", "Tkinter Canvas 3D Perspective + Three.js WebGL"),
+        ]:
             self._row(lbl, val)
 
         ctk.CTkFrame(self, height=20, fg_color="transparent").pack()
@@ -93,7 +121,7 @@ class PageSettings(ctk.CTkScrollableFrame):
     def _row(self, lbl: str, val: str):
         r = ctk.CTkFrame(self._current_card, fg_color="transparent")
         r.pack(fill="x", padx=16, pady=3)
-        ctk.CTkLabel(r, text=lbl, font=FONT_MAIN, width=260, anchor="w", text_color=SUBTEXT_FG).pack(side="left")
+        ctk.CTkLabel(r, text=lbl, font=FONT_MAIN, width=320, anchor="w", text_color=SUBTEXT_FG).pack(side="left")
         ctk.CTkLabel(r, text=val, font=("Segoe UI", 11, "bold"), anchor="w", text_color=HEADER_FG).pack(side="left")
 
     def _on_theme(self, choice: str):
@@ -108,4 +136,3 @@ class PageSettings(ctk.CTkScrollableFrame):
         top = self.winfo_toplevel()
         if hasattr(top, "on_theme_changed"):
             top.on_theme_changed(mode)
-
