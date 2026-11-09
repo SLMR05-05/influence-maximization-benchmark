@@ -51,6 +51,7 @@ class IMApp(ctk.CTk):
 
         self._current_page_key = None
         self._page_widget = None
+        self._cached_pages = {}
 
         self._build_layout()
 
@@ -99,12 +100,26 @@ class IMApp(ctk.CTk):
     def navigate(self, key: str):
         if key not in self.pages:
             return
-        if self._page_widget:
-            self._page_widget.destroy()
 
-        factory = self.pages[key]
-        self._page_widget = factory(self.content_container)
-        self._page_widget.pack(fill="both", expand=True)
+        if self._page_widget:
+            if self._current_page_key == "experiments":
+                self._page_widget.pack_forget()
+            else:
+                self._page_widget.destroy()
+            self._page_widget = None
+
+        if key == "experiments" and key in self._cached_pages:
+            self._page_widget = self._cached_pages[key]
+            self._page_widget.pack(fill="both", expand=True)
+            if hasattr(self._page_widget, "on_show"):
+                self._page_widget.on_show()
+        else:
+            factory = self.pages[key]
+            self._page_widget = factory(self.content_container)
+            self._page_widget.pack(fill="both", expand=True)
+            if key == "experiments":
+                self._cached_pages[key] = self._page_widget
+
         self._current_page_key = key
 
         if hasattr(self, "top_header"):
