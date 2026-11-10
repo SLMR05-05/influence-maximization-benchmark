@@ -28,6 +28,8 @@ imlab
 
 Giao diện sẽ mở với 7 tab: Dashboard, Results, Comparison, Datasets, Experiments, Reports, Settings.
 
+> **Cấu hình lan truyền IC:** vào tab **Datasets → Cấu hình lan truyền (IC)** để chỉnh `p`, `R_search`, `R_val` và seed evaluator. Cấu hình được lưu vào `data/config.db` và tab **Experiments** tự động dùng lại khi khởi chạy.
+
 ### Bước 3: Chạy Experiment qua CLI
 
 ```bash
@@ -45,7 +47,10 @@ python -m im_research.experiments.runner \
 | Tham số | Mô tả | Mặc định |
 |---------|-------|----------|
 | `--dataset` | Tên dataset (Karate Club, Dolphins, ego-Facebook, NetHEPT, Email-Enron) | Karate Club |
-| `--model` | Mô hình lan truyền (IC hoặc LT) | IC |
+| `--model` | Mô hình lan truyền (hiện chỉ hỗ trợ IC) | IC |
+| `--p` | Xác suất cạnh uniform của IC | 0.1 |
+| `--seed` | Seed evaluator cho tìm kiếm | 42 |
+| `--seed_val` | Seed evaluator cho kiểm định | 12345 |
 | `--k` | Số đỉnh hạt giống | 10 |
 | `--mc` | Số lần MC cho search | 200 |
 | `--mc_val` | Số lần MC cho validation | 1000 |

@@ -19,6 +19,7 @@ from tkinter import messagebox
 from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
 from im_research.gui.core.ui_helpers import section_header, metric_card
+from im_research.gui.components.ic_config_view import ICConfigView
 from im_research.gui.visualization.graph_explorer_view import GraphExplorerView
 
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
@@ -101,7 +102,11 @@ class PageDatasets(ctk.CTkFrame):
 
         self.view_selector = ctk.CTkSegmentedButton(
             top_ctrl,
-            values=["Trực quan hóa Mạng lưới 3D (Knowledge Graph)", "Bảng thông số 5 bộ dữ liệu chuẩn"],
+            values=[
+                "Mạng lưới 3D (Knowledge Graph)",
+                "Bảng 5 bộ dữ liệu chuẩn",
+                "Cấu hình lan truyền (IC)",
+            ],
             command=self._on_view_change,
             height=34,
             font=("Segoe UI", 11, "bold"),
@@ -111,7 +116,7 @@ class PageDatasets(ctk.CTkFrame):
             unselected_hover_color=("#cbd5e1", "#334155"),
             text_color=("#0f172a", "#f8fafc")
         )
-        self.view_selector.set("Trực quan hóa Mạng lưới 3D (Knowledge Graph)")
+        self.view_selector.set("Mạng lưới 3D (Knowledge Graph)")
         self.view_selector.pack(side="left")
 
         # Container
@@ -121,10 +126,18 @@ class PageDatasets(ctk.CTkFrame):
         self._show_3d_view()
 
     def _on_view_change(self, val: str):
-        if "3D" in val:
+        if "Cấu hình" in val:
+            self._show_ic_config_view()
+        elif "3D" in val:
             self._show_3d_view()
         else:
             self._show_table_view()
+
+    def _show_ic_config_view(self):
+        if self._view_widget:
+            self._view_widget.destroy()
+        self._view_widget = ICConfigView(self.container)
+        self._view_widget.pack(fill="both", expand=True)
 
     def _show_3d_view(self, select_graph_name: str = None):
         if self._view_widget:
@@ -255,5 +268,5 @@ class PageDatasets(ctk.CTkFrame):
             ctk.CTkLabel(b_inner, text=p, font=("Consolas", 10), text_color=GREEN if "Đã sẵn sàng" in p else RED, anchor="w").pack(anchor="w", padx=10, pady=2)
 
     def _switch_to_3d_graph(self, dataset_name: str):
-        self.view_selector.set("Trực quan hóa Mạng lưới 3D (Knowledge Graph)")
+        self.view_selector.set("Mạng lưới 3D (Knowledge Graph)")
         self._show_3d_view(select_graph_name=dataset_name)

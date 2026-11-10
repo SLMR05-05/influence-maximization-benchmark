@@ -32,7 +32,7 @@ from im_research.algorithms.evolutionary.ga import BaselineGA
 
 ALGORITHM_REGISTRY = {
     "degree": lambda **kw: DegreeCentrality(),
-    "degree_discount": lambda **kw: DegreeDiscount(edge_probability=0.1),
+    "degree_discount": lambda **kw: DegreeDiscount(edge_probability=kw.get("p", 0.1)),
     "pagerank": lambda **kw: PageRankHeuristic(damping=0.85, max_iter=30),
     "celf": lambda **kw: CELF(),
     "ga": lambda **kw: BaselineGA(pop_size=kw.get("pop_size", 50), max_generations=kw.get("max_gen", 100)),
@@ -43,7 +43,10 @@ ALGORITHM_REGISTRY = {
 def parse_args():
     parser = argparse.ArgumentParser(description="IM Experiment Runner")
     parser.add_argument("--dataset", type=str, default="Karate Club", help="Dataset name")
-    parser.add_argument("--model", type=str, default="IC", choices=["IC", "LT"], help="Diffusion model")
+    parser.add_argument("--model", type=str, default="IC", choices=["IC"], help="Diffusion model (only IC is implemented)")
+    parser.add_argument("--p", type=float, default=0.1, help="Uniform IC edge probability")
+    parser.add_argument("--seed", type=int, default=42, help="Search evaluator seed")
+    parser.add_argument("--seed_val", type=int, default=12345, help="Validation evaluator seed")
     parser.add_argument("--k", type=int, default=10, help="Seed set size k")
     parser.add_argument("--mc", type=int, default=200, help="Monte Carlo simulations for search")
     parser.add_argument("--mc_val", type=int, default=1000, help="Monte Carlo simulations for final validation")
@@ -55,33 +58,41 @@ def parse_args():
 
 def run_experiments():
     args = parse_args()
+    if not 0.0 < args.p <= 1.0:
+        raise SystemExit("--p must be in the range (0, 1].")
     selected_algos = args.algos or ["celf", "ga", "degree_discount", "pagerank", "degree"]
 
     print("=" * 70)
     print("      IM-Benchmark-Lab — INFLUENCE MAXIMIZATION EXPERIMENT RUNNER")
     print("=" * 70)
     print(f"Dataset      : {args.dataset}")
-    print(f"Model        : {args.model}")
+    print(f"Model        : {args.model} (uniform p={args.p:g})")
     print(f"Budget k     : {args.k}")
     print(f"MC Search (R): {args.mc}")
     print(f"MC Val (R)   : {args.mc_val}")
+    print(f"Seeds        : search={args.seed}, validation={args.seed_val}")
     print(f"Repetitions  : {args.runs}")
     print(f"Algorithms   : {', '.join(selected_algos)}")
     print("-" * 70)
 
     # 1. Load Dataset
     print(f"[1/4] Loading graph dataset '{args.dataset}'...")
-    cpp_graph, meta = load_graph(args.dataset, p=0.1)
+    cpp_graph, meta = load_graph(args.dataset, p=args.p)
     print(f"      Graph loaded: {cpp_graph.num_nodes()} nodes, {cpp_graph.num_edges()} edges")
 
-    # 2. Setup C++ Shared Evaluator
-    diff_model = (
-        _im_core.DiffusionModel.IndependentCascade
-        if args.model.upper() == "IC"
-        else _im_core.DiffusionModel.LinearThreshold
+    # 2. Setup C++ Shared Evaluator (IC only — LT is not implemented in the core)
+    evaluator = _im_core.Evaluator(
+        cpp_graph,
+        _im_core.DiffusionModel.IndependentCascade,
+        num_mc_simulations=args.mc,
+        seed=args.seed,
     )
-    evaluator = _im_core.Evaluator(cpp_graph, diff_model, num_mc_simulations=args.mc, seed=42)
-    val_evaluator = _im_core.Evaluator(cpp_graph, diff_model, num_mc_simulations=args.mc_val, seed=12345)
+    val_evaluator = _im_core.Evaluator(
+        cpp_graph,
+        _im_core.DiffusionModel.IndependentCascade,
+        num_mc_simulations=args.mc_val,
+        seed=args.seed_val,
+    )
 
     problem = IMProblem(graph=cpp_graph, k=args.k, evaluator=evaluator)
     val_problem = IMProblem(graph=cpp_graph, k=args.k, evaluator=val_evaluator)
@@ -103,7 +114,7 @@ def run_experiments():
             continue
 
         algo_builder = ALGORITHM_REGISTRY[algo_key]
-        algo_instance = algo_builder()
+        algo_instance = algo_builder(p=args.p)
         algo_name = algo_instance.name
 
         print(f"\n>> Executing: {algo_name}")
@@ -112,7 +123,7 @@ def run_experiments():
         run_solutions = []
 
         for r in range(args.runs):
-            seed = 42 + r * 7
+            seed = args.seed + r * 7
             t0 = time.perf_counter()
             res = algo_instance.run(problem, seed=seed)
             t_elapsed = time.perf_counter() - t0
@@ -169,8 +180,12 @@ def run_experiments():
         "dataset": args.dataset,
         "k": args.k,
         "model": args.model,
+        "probability_mode": "uniform",
+        "p": args.p,
         "mc": args.mc,
         "mc_val": args.mc_val,
+        "seed": args.seed,
+        "seed_val": args.seed_val,
         "runs": args.runs,
         "timestamp": timestamp,
         "summary": results_table,

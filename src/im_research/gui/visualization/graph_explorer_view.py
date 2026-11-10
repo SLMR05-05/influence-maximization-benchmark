@@ -20,6 +20,7 @@ import customtkinter as ctk
 from pathlib import Path
 from im_research.gui.visualization.graph_3d_canvas import Graph3DCanvas
 from im_research.gui.visualization.webgl_exporter import export_and_open_webgl
+from im_research.data.config_loader import load_all_dataset_configs
 
 RAW_DIR = Path(__file__).resolve().parents[4] / "data" / "raw"
 
@@ -40,11 +41,24 @@ BTN_HOVER     = ("#e2e8f0", "#334155")
 class GraphExplorerView(ctk.CTkFrame):
     def __init__(self, master, **kw):
         super().__init__(master, fg_color=DARK_BG, corner_radius=0, **kw)
-        self.current_graph_name = "Karate Club (n=34, m=78)"
+        self.dataset_configs = load_all_dataset_configs()
+        initial_name = self.dataset_configs[0]["name"] if self.dataset_configs else "Karate Club"
+        self.current_graph_name = initial_name
         self.current_graph: Optional[nx.Graph] = None
         self.full_graph: Optional[nx.Graph] = None
         self._build_ui()
-        self.load_selected_graph("Karate Club (n=34, m=78)")
+        self.load_selected_graph(initial_name)
+
+    def _get_menu_values(self) -> List[str]:
+        if self.dataset_configs:
+            return [f"{d['name']} (n={d['n']}, m={d['m']})" for d in self.dataset_configs]
+        return ["Karate Club (n=34, m=78)"]
+
+    def refresh_dataset_options(self):
+        self.dataset_configs = load_all_dataset_configs()
+        vals = self._get_menu_values()
+        if hasattr(self, "ds_menu"):
+            self.ds_menu.configure(values=vals)
 
     def _build_ui(self):
         # ── Top Control Bar ───────────────────────────────────────────────────
@@ -61,8 +75,9 @@ class GraphExplorerView(ctk.CTkFrame):
         ctk.CTkLabel(title_box, text="Knowledge Graph 3D", font=("Segoe UI", 13, "bold"), text_color=TEXT_WHITE).pack(side="left")
 
         # Dataset selector
-        self.dataset_var = ctk.StringVar(value="Karate Club (n=34, m=78)")
-        ds_menu = ctk.CTkOptionMenu(
+        vals = self._get_menu_values()
+        self.dataset_var = ctk.StringVar(value=vals[0] if vals else "Karate Club")
+        self.ds_menu = ctk.CTkOptionMenu(
             top_bar, variable=self.dataset_var, width=280, height=32,
             fg_color=("#ffffff", "#1e293b"),
             button_color=("#e2e8f0", "#334155"),
@@ -72,16 +87,10 @@ class GraphExplorerView(ctk.CTkFrame):
             dropdown_text_color=("#0f172a", "#f8fafc"),
             dropdown_hover_color=("#f1f5f9", "#334155"),
             corner_radius=6,
-            values=[
-                "Karate Club (n=34, m=78)",
-                "Dolphins (n=62, m=159)",
-                "ego-Facebook (n=4,039, m=88,234)",
-                "NetHEPT (n=15,233, m=58,891)",
-                "Email-Enron (n=36,692, m=183,831)",
-            ],
+            values=vals,
             command=self._on_dataset_change
         )
-        ds_menu.pack(side="left", padx=10, pady=10)
+        self.ds_menu.pack(side="left", padx=10, pady=10)
 
         # Real data indicator badge
         self.lbl_dataset_mode = ctk.CTkLabel(
@@ -90,14 +99,7 @@ class GraphExplorerView(ctk.CTkFrame):
         )
         self.lbl_dataset_mode.pack(side="left", padx=(4, 10), pady=10)
 
-        # Live Diffusion Status indicator
-        self.lbl_diffusion_status = ctk.CTkLabel(
-            top_bar, text="",
-            font=("Segoe UI", 10, "bold"), text_color="#f59e0b"
-        )
-        self.lbl_diffusion_status.pack(side="left", padx=(10, 10), pady=10)
-
-        # Action Buttons (Right)
+        # Action Buttons (Right) - Anchored and spacious
         btn_box = ctk.CTkFrame(top_bar, fg_color="transparent")
         btn_box.pack(side="right", padx=16, pady=8)
 
@@ -119,16 +121,6 @@ class GraphExplorerView(ctk.CTkFrame):
             border_width=1,
             border_color=("#cbd5e1", "#334155"),
             corner_radius=6, command=self._reset_camera
-        ).pack(side="left", padx=4)
-
-        # 3. WebGL GPU Browser Mode
-        ctk.CTkButton(
-            btn_box, text="WebGL 3D (Browser)", width=145, height=32,
-            font=("Segoe UI", 11, "bold"),
-            fg_color=("#0284c7", "#0369a1"),
-            hover_color=("#0369a1", "#0284c7"),
-            text_color="#ffffff",
-            corner_radius=6, command=self._open_webgl
         ).pack(side="left", padx=4)
 
         # ── Main 3-Column Workspace ───────────────────────────────────────────
@@ -162,6 +154,26 @@ class GraphExplorerView(ctk.CTkFrame):
             on_diffusion_status=self._on_diffusion_status
         )
         self.canvas_3d.pack(fill="both", expand=True)
+
+        # Floating Diffusion Notification HUD Banner on 3D Canvas
+        self.diffusion_hud = ctk.CTkFrame(
+            center_container,
+            fg_color=("#ffffff", "#0b111e"),
+            corner_radius=18,
+            border_width=1,
+            border_color="#f59e0b"
+        )
+        self.lbl_hud_icon = ctk.CTkLabel(
+            self.diffusion_hud, text="⚡", font=("Segoe UI", 11, "bold"), text_color="#f59e0b"
+        )
+        self.lbl_hud_icon.pack(side="left", padx=(12, 6), pady=6)
+
+        self.lbl_hud_text = ctk.CTkLabel(
+            self.diffusion_hud, text="", font=("Segoe UI", 10, "bold"), text_color=TEXT_WHITE
+        )
+        self.lbl_hud_text.pack(side="left", padx=(0, 14), pady=6)
+        # Initially hidden until pulse is triggered
+        self.diffusion_hud.place_forget()
 
         # On-Canvas Floating Zoom Overlay (Bottom-Right)
         zoom_overlay = ctk.CTkFrame(
@@ -336,9 +348,43 @@ class GraphExplorerView(ctk.CTkFrame):
                                           text_color=TEXT_WHITE, anchor="w")
         self.lbl_node_comm.pack(fill="x", padx=12, pady=(2, 10))
 
+        ctk.CTkFrame(self.right_sidebar, height=1, fg_color=BORDER_DARK).pack(fill="x", padx=10, pady=6)
+
+        # Dedicated Cascade Diffusion Progress Card
+        ctk.CTkLabel(self.right_sidebar, text="TIẾN TRÌNH LAN TRUYỀN", font=("Segoe UI", 11, "bold"),
+                     text_color=ACCENT_CYAN, anchor="w").pack(fill="x", pady=(6, 6), padx=10)
+
+        self.diff_card = ctk.CTkFrame(self.right_sidebar, fg_color=CARD_INNER, corner_radius=8,
+                                      border_width=1, border_color=BORDER_DARK)
+        self.diff_card.pack(fill="x", padx=10, pady=(0, 10))
+
+        self.lbl_diff_status = ctk.CTkLabel(
+            self.diff_card, text="Trạng thái: Chờ kích hoạt",
+            font=("Segoe UI", 10, "bold"), text_color=TEXT_MUTED, anchor="w"
+        )
+        self.lbl_diff_status.pack(fill="x", padx=12, pady=(8, 2))
+
+        self.lbl_diff_step = ctk.CTkLabel(
+            self.diff_card, text="Bước mô phỏng: t = 0",
+            font=("Segoe UI", 10), text_color=TEXT_WHITE, anchor="w"
+        )
+        self.lbl_diff_step.pack(fill="x", padx=12, pady=2)
+
+        self.lbl_diff_count = ctk.CTkLabel(
+            self.diff_card, text="Đã kích hoạt: 0 đỉnh",
+            font=("Segoe UI", 10), text_color=TEXT_WHITE, anchor="w"
+        )
+        self.lbl_diff_count.pack(fill="x", padx=12, pady=(2, 6))
+
+        self.diff_progress = ctk.CTkProgressBar(self.diff_card, height=6, progress_color="#f59e0b")
+        self.diff_progress.pack(fill="x", padx=12, pady=(0, 10))
+        self.diff_progress.set(0.0)
+
+        ctk.CTkFrame(self.right_sidebar, height=1, fg_color=BORDER_DARK).pack(fill="x", padx=10, pady=6)
+
         # Neighbor list container
         ctk.CTkLabel(self.right_sidebar, text="DANH SÁCH ĐỈNH LÂN CẬN (1-HOP)", font=("Segoe UI", 10, "bold"),
-                     text_color=TEXT_MUTED, anchor="w").pack(fill="x", padx=10, pady=(8, 4))
+                     text_color=TEXT_MUTED, anchor="w").pack(fill="x", padx=10, pady=(6, 4))
 
         self.neighbor_box = ctk.CTkScrollableFrame(self.right_sidebar, height=160, fg_color=CARD_INNER,
                                                   border_width=1, border_color=BORDER_DARK)
@@ -460,7 +506,15 @@ class GraphExplorerView(ctk.CTkFrame):
         self.full_graph = g_full
         self.current_graph = display_g
         self.lbl_dataset_mode.configure(text=badge_text)
-        self.lbl_diffusion_status.configure(text="")
+
+        # Reset Floating HUD & Sidebar Progress
+        if hasattr(self, "diffusion_hud"):
+            self.diffusion_hud.place_forget()
+        if hasattr(self, "lbl_diff_status"):
+            self.lbl_diff_status.configure(text="Trạng thái: Chờ kích hoạt", text_color=TEXT_MUTED)
+            self.lbl_diff_step.configure(text="Bước mô phỏng: t = 0")
+            self.lbl_diff_count.configure(text="Đã kích hoạt: 0 đỉnh")
+            self.diff_progress.set(0.0)
 
         # Update right sidebar stats card
         self.lbl_nodes.configure(text=f"Số đỉnh (n): {full_n:,}")
@@ -479,17 +533,14 @@ class GraphExplorerView(ctk.CTkFrame):
 
     def select_dataset(self, name: str):
         """Programmatically select a dataset by partial or full name."""
-        for v in [
-            "Karate Club (n=34, m=78)",
-            "Dolphins (n=62, m=159)",
-            "ego-Facebook (n=4,039, m=88,234)",
-            "NetHEPT (n=15,233, m=58,891)",
-            "Email-Enron (n=36,692, m=183,831)",
-        ]:
+        vals = self._get_menu_values()
+        for v in vals:
             if name.lower() in v.lower():
                 self.dataset_var.set(v)
                 self.load_selected_graph(v)
-                break
+                return
+        self.dataset_var.set(name)
+        self.load_selected_graph(name)
 
     def _on_dataset_change(self, val: str):
         self.load_selected_graph(val)
@@ -526,18 +577,46 @@ class GraphExplorerView(ctk.CTkFrame):
             self.zoom_slider.set(round(zoom_val, 2))
 
     def _on_diffusion_status(self, step: int, active: int, total: int, is_running: bool):
-        """Displays real-time cascade progress badge."""
+        """Displays real-time cascade progress on the floating Canvas HUD and the Right Sidebar."""
         pct = (active / total * 100.0) if total > 0 else 0.0
+        ratio = (active / total) if total > 0 else 0.0
+
         if is_running:
-            self.lbl_diffusion_status.configure(
-                text=f"▶ Lan truyền: Bước t={step} | Đã kích hoạt: {active}/{total} đỉnh ({pct:.1f}%)",
-                text_color="#f59e0b"
-            )
+            # 1. Floating HUD on 3D Canvas
+            if hasattr(self, "diffusion_hud"):
+                self.diffusion_hud.place(relx=0.5, rely=0.03, anchor="n")
+                self.diffusion_hud.configure(border_color="#f59e0b")
+                self.lbl_hud_icon.configure(text="⚡", text_color="#f59e0b")
+                self.lbl_hud_text.configure(
+                    text=f"Lan truyền: Bước t={step}  │  Đã kích hoạt: {active}/{total} đỉnh ({pct:.1f}%)",
+                    text_color=TEXT_WHITE
+                )
+
+            # 2. Right Sidebar Progress Card
+            if hasattr(self, "lbl_diff_status"):
+                self.lbl_diff_status.configure(text="Trạng thái: ▶ Đang lan truyền...", text_color="#f59e0b")
+                self.lbl_diff_step.configure(text=f"Bước mô phỏng: t = {step}")
+                self.lbl_diff_count.configure(text=f"Đã kích hoạt: {active}/{total} đỉnh ({pct:.1f}%)")
+                self.diff_progress.set(ratio)
+                self.diff_progress.configure(progress_color="#f59e0b")
         else:
-            self.lbl_diffusion_status.configure(
-                text=f"✓ Hoàn tất lan truyền: {active}/{total} đỉnh ({pct:.1f}%)",
-                text_color="#10b981"
-            )
+            # 1. Floating HUD on 3D Canvas
+            if hasattr(self, "diffusion_hud"):
+                self.diffusion_hud.place(relx=0.5, rely=0.03, anchor="n")
+                self.diffusion_hud.configure(border_color="#10b981")
+                self.lbl_hud_icon.configure(text="✓", text_color="#10b981")
+                self.lbl_hud_text.configure(
+                    text=f"Hoàn tất lan truyền: {active}/{total} đỉnh ({pct:.1f}%)",
+                    text_color="#10b981"
+                )
+
+            # 2. Right Sidebar Progress Card
+            if hasattr(self, "lbl_diff_status"):
+                self.lbl_diff_status.configure(text="Trạng thái: ✓ Hoàn tất lan truyền", text_color="#10b981")
+                self.lbl_diff_step.configure(text=f"Số bước hoàn tất: t = {step}")
+                self.lbl_diff_count.configure(text=f"Tổng ảnh hưởng: {active}/{total} đỉnh ({pct:.1f}%)")
+                self.diff_progress.set(ratio)
+                self.diff_progress.configure(progress_color="#10b981")
 
     def _on_node_selected(self, u: int, info: dict):
         self.lbl_node_id.configure(text=f"Đỉnh: v{u}")

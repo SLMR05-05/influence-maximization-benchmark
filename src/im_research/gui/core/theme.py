@@ -12,9 +12,11 @@ ctk.set_default_color_theme("blue")
 # ── Color Palette (Adaptive Light & Dark Tuples) ──────────────────────────────
 BG_APP         = ("#f8fafc", "#0a0f1d")
 SIDEBAR_BG     = ("#ffffff", "#0d1322")
-ACTIVE_BG      = "#2563eb"
-ACTIVE_HOVER   = "#1d4ed8"
-INACTIVE_HOVER = ("#f1f5f9", "#1e293b")
+ACTIVE_BG          = "#2563eb"
+ACTIVE_HOVER       = "#1d4ed8"
+SIDEBAR_HOVER      = ("#e2e8f0", "#1e293b")
+SIDEBAR_HOVER_TEXT = ("#0f172a", "#ffffff")
+INACTIVE_HOVER     = ("#e2e8f0", "#1e293b")
 BORDER_COLOR   = ("#e2e8f0", "#1e293b")
 CARD_BG        = ("#ffffff", "#111827")
 HEADER_FG      = ("#0f172a", "#f8fafc")
@@ -45,10 +47,10 @@ FONT_MONO   = ("Consolas", 10)
 NAV_ITEMS = [
     ("dashboard",   "Tổng quan",              "home"),
     ("datasets",    "Bộ dữ liệu & Đồ thị 3D", "network"),
-    ("results",     "Kết quả lan truyền",     "line_chart"),
-    ("comparison",  "So sánh thuật toán",     "bar_chart"),
+    ("statistics",  "Thống kê & So sánh",     "bar_chart"),
     ("experiments", "Thí nghiệm",             "flask"),
     ("reports",     "Báo cáo & Luận văn",     "document"),
+    ("runtime",     "System & Runtime",       "chip"),
 ]
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]

@@ -108,12 +108,13 @@ class Sidebar(ctk.CTkFrame):
                 font=FONT_MAIN,
                 fg_color="transparent",
                 text_color=SUBTEXT_FG,
-                hover_color=INACTIVE_HOVER,
+                hover_color=SIDEBAR_HOVER,
                 cursor="hand2",
                 command=lambda k=key: self.activate(k),
             )
             btn.pack(fill="x", padx=12, pady=2)
             self._buttons[key] = (btn, icon_name, title)
+            self._attach_focus_hover_effects(btn, key, icon_name)
 
         # ── 4. Flexible Spacer ────────────────────────────────────────────────
         ctk.CTkFrame(self, fg_color="transparent").pack(fill="both", expand=True)
@@ -139,11 +140,12 @@ class Sidebar(ctk.CTkFrame):
             font=FONT_MAIN,
             fg_color="transparent",
             text_color=SUBTEXT_FG,
-            hover_color=INACTIVE_HOVER,
+            hover_color=SIDEBAR_HOVER,
             cursor="hand2",
             command=self._on_quick_theme_toggle,
         )
         self.theme_btn.pack(fill="x", padx=12, pady=2)
+        self._attach_theme_btn_effects()
 
         # Settings button
         settings_btn = ctk.CTkButton(
@@ -157,12 +159,13 @@ class Sidebar(ctk.CTkFrame):
             font=FONT_MAIN,
             fg_color="transparent",
             text_color=SUBTEXT_FG,
-            hover_color=INACTIVE_HOVER,
+            hover_color=SIDEBAR_HOVER,
             cursor="hand2",
             command=lambda: self.activate("settings"),
         )
         settings_btn.pack(fill="x", padx=12, pady=2)
         self._buttons["settings"] = (settings_btn, "settings", "Cài đặt hệ thống")
+        self._attach_focus_hover_effects(settings_btn, "settings", "settings")
 
         # System Readiness Pill
         status_box = ctk.CTkFrame(
@@ -192,6 +195,7 @@ class Sidebar(ctk.CTkFrame):
             old_btn, old_icon, old_title = self._buttons[self._active_key]
             old_btn.configure(
                 fg_color="transparent",
+                hover_color=SIDEBAR_HOVER,
                 text_color=SUBTEXT_FG,
                 font=FONT_MAIN,
                 image=self.icon_set.get(old_icon, active=False)
@@ -235,3 +239,61 @@ class Sidebar(ctk.CTkFrame):
                 text=theme_txt,
                 image=self.icon_set.get(theme_icon_name, active=False)
             )
+
+    def _attach_focus_hover_effects(self, btn: ctk.CTkButton, key: str, icon_name: str):
+        """Enhances button to turn label text black in light mode and white in dark mode on hover or focus."""
+        orig_enter = btn._on_enter
+        orig_leave = btn._on_leave
+
+        def on_enter(event=None):
+            orig_enter(event)
+            if self._active_key != key:
+                btn.configure(
+                    text_color=SIDEBAR_HOVER_TEXT,
+                    image=self.icon_set.get(icon_name, state="hover")
+                )
+
+        def on_leave(event=None):
+            orig_leave(event)
+            if self._active_key != key:
+                btn.configure(
+                    text_color=SUBTEXT_FG,
+                    image=self.icon_set.get(icon_name, active=False)
+                )
+
+        btn._on_enter = on_enter
+        btn._on_leave = on_leave
+        btn._create_bindings()
+
+        btn.bind("<FocusIn>", lambda e: on_enter(), add="+")
+        btn.bind("<FocusOut>", lambda e: on_leave(), add="+")
+
+    def _attach_theme_btn_effects(self):
+        """Enhances theme toggle button to turn text and icon black in light mode and white in dark mode on hover."""
+        orig_enter = self.theme_btn._on_enter
+        orig_leave = self.theme_btn._on_leave
+
+        def on_enter(event=None):
+            orig_enter(event)
+            is_dark = get_theme() == "dark"
+            icon_name = "sun" if is_dark else "moon"
+            self.theme_btn.configure(
+                text_color=SIDEBAR_HOVER_TEXT,
+                image=self.icon_set.get(icon_name, state="hover")
+            )
+
+        def on_leave(event=None):
+            orig_leave(event)
+            is_dark = get_theme() == "dark"
+            icon_name = "sun" if is_dark else "moon"
+            self.theme_btn.configure(
+                text_color=SUBTEXT_FG,
+                image=self.icon_set.get(icon_name, active=False)
+            )
+
+        self.theme_btn._on_enter = on_enter
+        self.theme_btn._on_leave = on_leave
+        self.theme_btn._create_bindings()
+
+        self.theme_btn.bind("<FocusIn>", lambda e: on_enter(), add="+")
+        self.theme_btn.bind("<FocusOut>", lambda e: on_leave(), add="+")

@@ -153,15 +153,17 @@ Thay vì dùng ma trận kề (gây tốn bộ nhớ $O(|V|^2)$) hoặc danh sá
    * Đỉnh $v$ chuyển sang kích hoạt khi tổng trọng số ảnh hưởng từ các láng giềng đã kích hoạt đạt ngưỡng: $\sum_{u \in N_{in}(v) \cap A} b_{u,v} \ge \theta_v$.
 
 ### 5.2. Các phương pháp gán xác suất cạnh $p(u, v)$
-Hệ thống hỗ trợ cấu hình linh hoạt 3 cơ chế gán xác suất:
-1. **Weighted Cascade (WC) - Khuyến nghị mặc định:**
+> **Trạng thái triển khai:** phiên bản hiện tại chỉ hỗ trợ **Uniform** với $p$ cấu hình được trong GUI (mặc định $0.1$). Weighted Cascade và Trivalency là định hướng mở rộng, chưa có trong C++ evaluator.
+
+Ba cơ chế gán xác suất được xem xét trong thiết kế:
+1. **Weighted Cascade (WC) — Định hướng mở rộng:**
    $$p(u, v) = \frac{1}{d_{in}(v)}$$
    (với $d_{in}(v)$ là bán bậc vào của đỉnh $v$). Mô hình này phản ánh thực tế: nút càng nổi tiếng (nhiều người theo dõi) thì ảnh hưởng của một người cụ thể lên nút đó càng giảm.
-2. **Trivalency Model (TR):**
+2. **Trivalency Model (TR) — Định hướng mở rộng:**
    Xác suất $p(u, v)$ được chọn ngẫu nhiên đồng đều từ tập hữu hạn:
    $$p(u, v) \in \{0.1, 0.01, 0.001\}$$
    tương ứng với 3 cấp độ quan hệ xã hội: Thân thiết, Quen biết, và Xã giao.
-3. **Uniform Model (Constant Probability):**
+3. **Uniform Model (Constant Probability) — Đang triển khai:**
    Gán xác suất cố định cho toàn bộ các cạnh, ví dụ $p(u, v) = 0.01$ hoặc $p(u, v) = 0.05$.
 
 ### 5.3. Quy định đo lường & Đánh giá công bằng (Evaluation Protocol)

@@ -8,7 +8,7 @@ fi
 
 source .venv/bin/activate
 pip install --upgrade pip setuptools wheel
-pip install numpy scipy pandas matplotlib seaborn pyyaml networkx tqdm pytest
+pip install numpy scipy pandas matplotlib seaborn pyyaml networkx tqdm pytest psutil
 
 echo "=== Building C++ Core with CMake ==="
 bash build.sh

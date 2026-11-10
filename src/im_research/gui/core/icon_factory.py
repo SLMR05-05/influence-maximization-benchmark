@@ -176,6 +176,25 @@ def draw_moon(size=128, color=GRAY_LIGHT, stroke_width=7):
     im.alpha_composite(moon_layer)
     return im
 
+def draw_chip(size=128, color=GRAY_LIGHT, stroke_width=7):
+    """Draws CPU processor chip icon with pins and core die."""
+    im = _canvas(size)
+    d = ImageDraw.Draw(im)
+    # Chip body
+    d.rounded_rectangle([34, 34, 94, 94], radius=10, outline=color, width=stroke_width)
+    # Inner core die
+    d.rounded_rectangle([48, 48, 80, 80], radius=4, outline=color, width=5)
+    # Pins
+    pin_len = 10
+    for p in [46, 64, 82]:
+        # Top & Bottom pins
+        d.line([(p, 34 - pin_len), (p, 34)], fill=color, width=5)
+        d.line([(p, 94), (p, 94 + pin_len)], fill=color, width=5)
+        # Left & Right pins
+        d.line([(34 - pin_len, p), (34, p)], fill=color, width=5)
+        d.line([(94, p), (94 + pin_len, p)], fill=color, width=5)
+    return im
+
 class IconSet:
     """Provides CTkImage objects for active (blue/white) and inactive (light/dark adapt) states."""
     def __init__(self, target_size=24):
@@ -188,8 +207,8 @@ class IconSet:
         logo_light = _downscale(draw_atom(size=128, color=BLUE_LIGHT), 36)
         logo_dark  = _downscale(draw_atom(size=128, color=CYAN_DARK), 36)
         self.logo = ctk.CTkImage(light_image=logo_light, dark_image=logo_dark, size=(36, 36))
-        self._cache["atom"] = {"inactive": self.logo, "active": self.logo}
-        self._cache["logo"] = {"inactive": self.logo, "active": self.logo}
+        self._cache["atom"] = {"inactive": self.logo, "active": self.logo, "hover": self.logo}
+        self._cache["logo"] = {"inactive": self.logo, "active": self.logo, "hover": self.logo}
 
         # Generators for items
         items = [
@@ -202,6 +221,7 @@ class IconSet:
             ("settings",   draw_settings),
             ("sun",        draw_sun),
             ("moon",       draw_moon),
+            ("chip",       draw_chip),
         ]
 
         for name, fn in items:
@@ -211,6 +231,10 @@ class IconSet:
 
             # Active icon: white on active blue background
             img_active = _downscale(fn(color=WHITE), self.target_size)
+
+            # Hover/Focus icon: black in light mode, white in dark mode
+            img_hover_light = _downscale(fn(color="#0f172a"), self.target_size)
+            img_hover_dark  = _downscale(fn(color=WHITE), self.target_size)
 
             self._cache[name] = {
                 "inactive": ctk.CTkImage(
@@ -223,8 +247,15 @@ class IconSet:
                     dark_image=img_active,
                     size=(self.target_size, self.target_size)
                 ),
+                "hover": ctk.CTkImage(
+                    light_image=img_hover_light,
+                    dark_image=img_hover_dark,
+                    size=(self.target_size, self.target_size)
+                ),
             }
 
-    def get(self, name: str, active: bool = False) -> ctk.CTkImage:
-        state = "active" if active else "inactive"
-        return self._cache[name][state]
+    def get(self, name: str, active: bool = False, state: str = None) -> ctk.CTkImage:
+        if state and state in self._cache.get(name, {}):
+            return self._cache[name][state]
+        s = "active" if active else "inactive"
+        return self._cache[name][s]

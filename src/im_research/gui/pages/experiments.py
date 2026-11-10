@@ -8,9 +8,11 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import messagebox, filedialog
+from datetime import datetime
 from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
 from im_research.gui.core.ui_helpers import section_header, metric_card
+from im_research.core.diffusion_config import get_ic_config
 class PageExperiments(ctk.CTkScrollableFrame):
     def __init__(self, master, **kw):
         super().__init__(master, fg_color=BG_APP, **kw)
@@ -18,6 +20,7 @@ class PageExperiments(ctk.CTkScrollableFrame):
         self._build()
 
     def _build(self):
+        self._ic_config = get_ic_config()
         section_header(
             self,
             "Thiết lập & Khởi chạy thí nghiệm",
@@ -41,13 +44,29 @@ class PageExperiments(ctk.CTkScrollableFrame):
             values=["Karate Club", "Dolphins", "ego-Facebook", "NetHEPT", "Email-Enron"]
         ).grid(row=0, column=1, padx=16, pady=8, sticky="w")
 
-        # Model Select
+        # Model — fixed to IC (LT is not implemented by the C++ engine)
         make_row("Mô hình lan truyền:", 1)
-        self.model_var = ctk.StringVar(value="IC (Independent Cascade, p=0.1)")
-        ctk.CTkOptionMenu(
-            form, variable=self.model_var, width=240,
-            values=["IC (Independent Cascade, p=0.1)", "LT (Linear Threshold)"]
-        ).grid(row=1, column=1, padx=16, pady=8, sticky="w")
+        model_box = ctk.CTkFrame(form, fg_color="transparent")
+        model_box.grid(row=1, column=1, padx=16, pady=8, sticky="w")
+        ctk.CTkLabel(
+            model_box,
+            text="Independent Cascade (IC)",
+            font=("Segoe UI", 11, "bold"),
+            text_color=GREEN,
+            anchor="w",
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            model_box,
+            text=(
+                f"p = {self._ic_config['edge_probability']:g}   ·   "
+                f"R_search = {self._ic_config['mc_search']:,}   ·   "
+                f"R_val = {self._ic_config['mc_validation']:,}   ·   "
+                f"seed = {self._ic_config['seed_search']}/{self._ic_config['seed_validation']}"
+            ),
+            font=FONT_SMALL,
+            text_color=SUBTEXT_FG,
+            anchor="w",
+        ).pack(anchor="w", pady=(2, 0))
 
         # Seed set size k
         make_row("Kích thước tập hạt giống (k):", 2)
@@ -57,20 +76,26 @@ class PageExperiments(ctk.CTkScrollableFrame):
 
         # MC repetitions (Search phase)
         make_row("Số lần mô phỏng MC (Search):", 3)
-        self.mc_var = ctk.StringVar(value="200")
+        self.mc_var = ctk.StringVar(value=str(self._ic_config["mc_search"]))
         ctk.CTkEntry(form, textvariable=self.mc_var, width=120).grid(
             row=3, column=1, padx=16, pady=8, sticky="w")
 
-        # Repetitions / Independent runs
-        make_row("Số lần lặp độc lập (Runs):", 4)
-        self.runs_var = ctk.StringVar(value="30")
-        ctk.CTkEntry(form, textvariable=self.runs_var, width=120).grid(
+        # MC repetitions (Validation phase)
+        make_row("Số lần mô phỏng MC (Validation):", 4)
+        self.mc_val_var = ctk.StringVar(value=str(self._ic_config["mc_validation"]))
+        ctk.CTkEntry(form, textvariable=self.mc_val_var, width=120).grid(
             row=4, column=1, padx=16, pady=8, sticky="w")
 
+        # Repetitions / Independent runs
+        make_row("Số lần lặp độc lập (Runs):", 5)
+        self.runs_var = ctk.StringVar(value="30")
+        ctk.CTkEntry(form, textvariable=self.runs_var, width=120).grid(
+            row=5, column=1, padx=16, pady=8, sticky="w")
+
         # Algorithm selection checklist
-        make_row("Thuật toán thực thi:", 5)
+        make_row("Thuật toán thực thi:", 6)
         algo_box = ctk.CTkFrame(form, fg_color="transparent")
-        algo_box.grid(row=5, column=1, padx=16, pady=8, sticky="w")
+        algo_box.grid(row=6, column=1, padx=16, pady=8, sticky="w")
 
         self.algo_checks = {}
         algos = [
@@ -132,15 +157,34 @@ class PageExperiments(ctk.CTkScrollableFrame):
             return
 
         ds = self.ds_var.get()
-        model_str = self.model_var.get()
-        model_code = "IC" if "IC" in model_str else "LT"
+        ic = get_ic_config()
+        p = ic["edge_probability"]
+        seed = ic["seed_search"]
+        seed_val = ic["seed_validation"]
         k = self.k_var.get().strip() or "10"
-        mc = self.mc_var.get().strip() or "200"
+        mc = self.mc_var.get().strip() or str(ic["mc_search"])
+        mc_val = self.mc_val_var.get().strip() or str(ic["mc_validation"])
         runs = self.runs_var.get().strip() or "1"
         selected = [k_algo for k_algo, v in self.algo_checks.items() if v.get()]
 
+        try:
+            k, mc, mc_val, runs = int(k), int(mc), int(mc_val), int(runs)
+        except ValueError:
+            self._log("❌ k, số lần MC và số lần lặp phải là số nguyên. Kiểm tra lại cấu hình.")
+            return
+        if k < 1 or mc < 1 or mc_val < 1 or runs < 1:
+            self._log("❌ k, số lần MC và số lần lặp phải lớn hơn 0.")
+            return
+        if not selected:
+            self._log("❌ Chưa chọn thuật toán nào để thực thi.")
+            return
+
         clean_ds = ds.split()[0]
-        self._log(f"Bắt đầu thí nghiệm: Dataset={ds}, Model={model_code}, k={k}, MC={mc}, Runs={runs}")
+        self._log(
+            f"Bắt đầu thí nghiệm: Dataset={ds}, Model=IC, p={p:g}, "
+            f"k={k}, MC_search={mc}, MC_val={mc_val}, Runs={runs}"
+        )
+        self._log(f"Seed evaluator: search={seed}, validation={seed_val}")
         self._log(f"Thuật toán tham gia: {', '.join(selected)}")
         self._log("Đang kích hoạt môi trường WSL2 & C++ OpenMP Batch Evaluator...")
 
@@ -150,8 +194,12 @@ class PageExperiments(ctk.CTkScrollableFrame):
             algo_args = " ".join(f"--algo {a}" for a in selected)
             bash_script = (
                 "cd '/mnt/d/Khanh/Đồ án chuyên ngành' && "
-                "source .venv/bin/activate && "
-                f"python -m im_research.experiments.runner --dataset '{clean_ds}' --model {model_code} --k {k} --mc {mc} --runs {runs} {algo_args}"
+                "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; "
+                "else source ~/im_env/bin/activate; fi && "
+                f"python -m im_research.experiments.runner "
+                f"--dataset '{clean_ds}' --model IC --p {p:g} "
+                f"--k {k} --mc {mc} --mc_val {mc_val} --runs {runs} "
+                f"--seed {seed} --seed_val {seed_val} {algo_args}"
             )
             cmd = [wsl_bin, "-d", "Ubuntu", "--", "bash", "-c", bash_script]
             try:

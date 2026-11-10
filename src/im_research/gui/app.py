@@ -21,11 +21,11 @@ from im_research.gui.core.status_bar import StatusBar
 from im_research.gui.core.icon_factory import IconSet
 
 from im_research.gui.pages.dashboard import PageDashboard
-from im_research.gui.pages.results import PageResults
-from im_research.gui.pages.comparison import PageComparison
 from im_research.gui.pages.datasets import PageDatasets
+from im_research.gui.pages.statistics import PageStatistics
 from im_research.gui.pages.experiments import PageExperiments
 from im_research.gui.pages.reports import PageReports
+from im_research.gui.pages.system_runtime import PageSystemRuntime
 from im_research.gui.pages.settings import PageSettings
 
 
@@ -42,10 +42,12 @@ class IMApp(ctk.CTk):
         self.pages = {
             "dashboard":   lambda m: PageDashboard(m, on_switch_tab=self.navigate),
             "datasets":    PageDatasets,
-            "results":     lambda m: PageResults(m, on_switch_tab=self.navigate),
-            "comparison":  lambda m: PageComparison(m, on_switch_tab=self.navigate),
+            "statistics":  lambda m: PageStatistics(m, on_switch_tab=self.navigate),
+            "results":     lambda m: PageStatistics(m, on_switch_tab=self.navigate, initial_subtab="spread"),
+            "comparison":  lambda m: PageStatistics(m, on_switch_tab=self.navigate, initial_subtab="overview"),
             "experiments": PageExperiments,
             "reports":     lambda m: PageReports(m, on_switch_tab=self.navigate),
+            "runtime":     PageSystemRuntime,
             "settings":    PageSettings,
         }
 
@@ -107,11 +109,13 @@ class IMApp(ctk.CTk):
         self._page_widget.pack(fill="both", expand=True)
         self._current_page_key = key
 
-        if hasattr(self, "top_header"):
-            self.top_header.set_page(key)
+        sidebar_key = "statistics" if key in ("results", "comparison") else key
 
-        if hasattr(self, "sidebar") and self.sidebar._active_key != key:
-            self.sidebar.activate(key)
+        if hasattr(self, "top_header"):
+            self.top_header.set_page(sidebar_key)
+
+        if hasattr(self, "sidebar") and self.sidebar._active_key != sidebar_key:
+            self.sidebar.activate(sidebar_key)
 
 
 if __name__ == "__main__":

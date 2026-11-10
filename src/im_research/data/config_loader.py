@@ -45,7 +45,6 @@ def _format_vi_number(val: int | float, decimals: int = 0) -> str:
         return f"{int(val):,}".replace(",", ".")
     elif isinstance(val, (int, float)):
         s = f"{val:,.{decimals}f}"
-        # Swap comma and dot
         parts = s.split(".")
         int_part = parts[0].replace(",", ".")
         dec_part = parts[1] if len(parts) > 1 else ""
@@ -223,3 +222,4 @@ def generate_config_from_edgelist(
         yaml.safe_dump(cfg_data, f, sort_keys=False, allow_unicode=True)
 
     return cfg_data
+

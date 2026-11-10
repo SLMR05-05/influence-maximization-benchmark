@@ -22,10 +22,12 @@ from im_research.core.theme_config import get_theme, set_theme
 PAGE_TITLES = {
     "dashboard":   "Tổng quan nghiên cứu (Dashboard)",
     "datasets":    "Bộ dữ liệu chuẩn & Mạng lưới 3D",
-    "results":     "Kết quả lan truyền & Độ phủ ảnh hưởng",
-    "comparison":  "So sánh thuật toán & Kiểm định thống kê",
+    "statistics":  "Thống kê & So sánh (Results & Performance Comparison)",
+    "results":     "Thống kê & So sánh — Kết quả lan truyền",
+    "comparison":  "Thống kê & So sánh — So sánh thuật toán",
     "experiments": "Thiết lập & Khởi chạy thí nghiệm",
     "reports":     "Xuất báo cáo & Luận văn học thuật",
+    "runtime":     "System & Runtime — Môi trường thực thi & Tài nguyên",
     "settings":    "Cài đặt hệ thống & Tham số môi trường",
 }
 
@@ -101,10 +103,10 @@ class TopHeader(ctk.CTkFrame):
         p3 = ctk.CTkFrame(right_box, fg_color=PILL_BG, corner_radius=12, height=26)
         p3.pack(side="left", padx=4, pady=13)
         ctk.CTkLabel(
-            p3, text="● Model: IC (p=0.1)",
+            p3, text="● Model: IC",
             font=("Segoe UI", 9, "bold"), text_color=PILL_FG
         ).pack(padx=10, pady=2)
-        Tooltip(p3, "Mô hình lan truyền độc lập Independent Cascade với p=0.10")
+        Tooltip(p3, "Independent Cascade — cấu hình p, MC và seed tại Bộ dữ liệu → Cấu hình lan truyền (IC)")
 
         # Vertical Divider
         ctk.CTkFrame(right_box, width=1, height=22, fg_color=DIVIDER).pack(side="left", padx=8, pady=15)

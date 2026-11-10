@@ -1,0 +1,44 @@
+[
+  {
+    "timestamp": "02/11/2026 16:45:10",
+    "exp_id": "EXP_20261102_KARATE_01",
+    "dataset": "Karate Club (n=34, m=78)",
+    "algorithm": "IGA (Improved GA)",
+    "compiler": "g++ 13.3.0 (-O3 OpenMP)",
+    "build_type": "Release (-march=native)",
+    "cpu": "AMD64 Family 25 (8C/16T)",
+    "ram": "16.0 GB",
+    "git_commit": "89f2c25",
+    "runtime_s": "0.142s",
+    "speedup": "92.4x vs Python",
+    "notes": "Mô phỏng 10.000 MC, tập hạt giống k=10"
+  },
+  {
+    "timestamp": "02/11/2026 17:10:22",
+    "exp_id": "EXP_20261102_DOLPHINS_02",
+    "dataset": "Dolphins (n=62, m=159)",
+    "algorithm": "CELF (Lazy Greedy)",
+    "compiler": "g++ 13.3.0 (-O3 OpenMP)",
+    "build_type": "Release (-march=native)",
+    "cpu": "AMD64 Family 25 (8C/16T)",
+    "ram": "16.0 GB",
+    "git_commit": "89f2c25",
+    "runtime_s": "0.385s",
+    "speedup": "88.1x vs Python",
+    "notes": "Mô phỏng 10.000 MC, tỉa nhánh lười cận mô-đun"
+  },
+  {
+    "timestamp": "02/11/2026 17:35:50",
+    "exp_id": "EXP_20261102_FACEBOOK_03",
+    "dataset": "ego-Facebook (n=4.039, m=88.234)",
+    "algorithm": "IGA (Improved GA)",
+    "compiler": "g++ 13.3.0 (-O3 OpenMP)",
+    "build_type": "Release (-march=native)",
+    "cpu": "AMD64 Family 25 (8C/16T)",
+    "ram": "16.0 GB",
+    "git_commit": "89f2c25",
+    "runtime_s": "4.812s",
+    "speedup": "115.6x vs Python",
+    "notes": "Batch evaluate 50 cá thể / thế hệ, OpenMP 16 threads"
+  }
+]

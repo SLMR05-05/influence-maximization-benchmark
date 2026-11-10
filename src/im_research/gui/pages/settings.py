@@ -15,6 +15,7 @@ import tkinter as tk
 from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
 from im_research.gui.core.ui_helpers import section_header, metric_card
+from im_research.core.diffusion_config import get_ic_config
 
 
 class PageSettings(ctk.CTkScrollableFrame):
@@ -23,6 +24,7 @@ class PageSettings(ctk.CTkScrollableFrame):
         self._build()
 
     def _build(self):
+        ic_config = get_ic_config()
         section_header(
             self,
             "Cài đặt hệ thống & Môi trường tính toán",
@@ -49,8 +51,8 @@ class PageSettings(ctk.CTkScrollableFrame):
             ("Lõi tính toán:", "C++17 OpenMP CSR Fast Evaluator"),
             ("Chế độ biên dịch:", "Release (-O3 -march=native -fopenmp)"),
             ("Số luồng OpenMP:", f"Auto ({os.cpu_count() or 8} threads)"),
-            ("R_search (MC Search):", "200"),
-            ("R_val (MC Validation):", "10,000"),
+            ("R_search (MC Search):", f"{ic_config['mc_search']:,}"),
+            ("R_val (MC Validation):", f"{ic_config['mc_validation']:,}"),
             ("Môi trường thực thi:", "WSL2 Ubuntu 24.04 LTS"),
         ]:
             self._row(lbl, val)
@@ -59,7 +61,7 @@ class PageSettings(ctk.CTkScrollableFrame):
         self._card("3. Experiment Defaults (Mặc định thí nghiệm)")
         for lbl, val in [
             ("Dataset mặc định:", "Karate Club"),
-            ("Mô hình lan truyền:", "IC (Independent Cascade, p=0.1)"),
+            ("Mô hình lan truyền:", f"IC (Independent Cascade, p={ic_config['edge_probability']:g})"),
             ("Giá trị k khảo sát:", "5, 10, 15, 20, 25, 30, 40, 50"),
             ("Số lần lặp độc lập (Runs):", "30"),
             ("Ngân sách đánh giá (Max evals):", "10,000"),

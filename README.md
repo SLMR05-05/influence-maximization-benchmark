@@ -177,7 +177,7 @@ Theo `docs/experimental_environment.md`:
 ## 7. Quy trình nghiên cứu (7 giao thức)
 
 1. **Dataset Management** — Tải, chuẩn hóa, CSR format
-2. **Diffusion Engine** — IC/LT Monte Carlo (C++ core)
+2. **Diffusion Engine** — IC (Independent Cascade) Monte Carlo, cấu hình p/MC/seed trong GUI (C++ core); LT trong lộ trình mở rộng
 3. **Algorithm Development** — Heuristic / Greedy / GA / IGA / PSO / ACO
 4. **Experiment Runner** — Chạy hàng loạt theo config
 5. **Result Management** — Lưu trữ CSV/JSONL trong `runs/`

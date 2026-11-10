@@ -38,13 +38,22 @@
 ### Các mô hình lan truyền được hỗ trợ
 | Mô hình | Vai trò |
 |--------|--------|
-| Independent Cascade (IC) | Mô hình lan truyền chính |
-| Linear Threshold (LT) | Kiểm tra khả năng tổng quát (sẽ bổ sung sau) |
+| Independent Cascade (IC) | Mô hình lan truyền chính — đã cài đặt trong C++ core |
+| Linear Threshold (LT) | Chưa triển khai — không hiển thị trong GUI |
+
+### Cấu hình IC trong GUI
+Mở **Bộ dữ liệu & Đồ thị 3D → Cấu hình lan truyền (IC)** để chỉnh sửa và lưu:
+- Xác suất cạnh `p` (uniform, mặc định `0.1`).
+- `R_search` — số lần Monte Carlo cho quá trình tìm kiếm (mặc định `200`).
+- `R_val` — số lần Monte Carlo cho bộ kiểm định độc lập (mặc định `1.000`).
+- Seed evaluator cho tìm kiếm và kiểm định.
+
+Cấu hình được lưu trong `data/config.db` (bảng `diffusion_config`) và tab **Thí nghiệm** tự động đọc lại mỗi lần khởi chạy.
 
 ### Quy trình
 1. **Đồ thị + Tập đỉnh hạt giống** – Tải đồ thị chuẩn hoá và tập đỉnh hạt giống được chọn.
-2. **Chọn mô hình lan truyền** – Chọn IC hoặc LT qua cấu hình.
-3. **Tải xác suất lan truyền / rãng cắt** – Đọc từ file cấu hình hoặc tính toán từ đồ thị.
+2. **Chọn mô hình lan truyền** – Hiện chỉ hỗ trợ IC; cấu hình tại mục **Cấu hình lan truyền (IC)**.
+3. **Tải xác suất lan truyền / rãng cắt** – Đọc xác suất uniform từ cấu hình IC đã lưu.
 4. **Khởi tạo các đỉnh hoạt động** – Đánh dấu các đỉnh hạt giống ban đầu là hoạt động.
 5. **Chạy một lần mô phỏng lan truyền** – Lan truyền hoạt động qua mạng.
 6. **Đếm số đỉnh hoạt động** – Đếm tổng số đỉnh mà đã được kích hoạt.
@@ -58,7 +67,7 @@
 - Tính trung bình ảnh hưởng qua Monte Carlo.
 - Ghi nhận số lần mô phỏng thực tế.
 - Kiểm soát seed ngẫu nhiên để tái lập.
-- Hỗ trợ cả IC và LT qua cấu hình.
+- Hỗ trợ IC với xác suất uniform cấu hình được; LT sẽ bổ sung sau.
 
 ### Kết quả ra
 - Hàm đánh giá chung có thể gọi bởi tất cả thuật toán.
