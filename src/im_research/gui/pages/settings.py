@@ -76,11 +76,12 @@ class PageSettings(ctk.CTkScrollableFrame):
             ("IGA — Xác suất đột biến cơ sở (pm_base):", "0.10"),
             ("IGA — Ngưỡng phân hóa đa dạng (threshold_div):", "0.30"),
             ("IGA — Số cá thể ưu tú bảo tồn (elite_count):", "2"),
-            ("GA Baseline — Kích thước quần thể:", "50"),
-            ("GA Baseline — Số thế hệ tối đa:", "200"),
-            ("GA Baseline — Xác suất đột biến ngẫu nhiên:", "0.10"),
-            ("PageRank — Hệ số cản ngẫu nhiên (damping):", "0.85"),
-            ("Degree Discount — Xác suất truyền p:", "0.10"),
+            ("GA (C++) — Kích thước quần thể (N):", "50"),
+            ("GA (C++) — Số thế hệ tối đa (Tmax):", "100"),
+            ("GA (C++) — Xác suất lai ghép (Pc):", "0.90"),
+            ("GA (C++) — Xác suất đột biến (Pm):", "0.10"),
+            ("GA (C++) — Kích thước tournament (q):", "5"),
+            ("GA (C++) — Số cá thể ưu tú (E):", "2"),
         ]:
             self._row(lbl, val)
 

@@ -120,6 +120,9 @@ class IMApp(ctk.CTk):
             if key == "experiments":
                 self._cached_pages[key] = self._page_widget
 
+        if hasattr(self._page_widget, "on_show") and key != "experiments":
+            self._page_widget.on_show()
+
         self._current_page_key = key
 
         if hasattr(self, "top_header"):

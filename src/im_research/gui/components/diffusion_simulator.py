@@ -19,24 +19,24 @@ except ImportError:
     nx = None
 
 from im_research.algorithms.evolutionary.ga import BaselineGA
+from im_research.algorithms.evolutionary.cpp_ga import CppBaselineGA
 from im_research.algorithms.evolutionary.iga import IGA
 from im_research.algorithms.greedy.celf import CELF
-from im_research.algorithms.heuristics.degree import DegreeCentrality
-from im_research.algorithms.heuristics.degree_discount import DegreeDiscount
-from im_research.algorithms.heuristics.pagerank import PageRankHeuristic
-from im_research.core.interfaces import AlgorithmResult, BaseAlgorithm
 from im_research.core.problem import IMProblem
-from im_research.core.solution import Solution
+from im_research.data.loader import build_cpp_graph, load_networkx_graph
+
+try:
+    from im_research import _im_core
+except ImportError:
+    _im_core = None
+
+CPP_CORE_AVAILABLE = _im_core is not None
 
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 
 DATASET_NAMES = ["Karate Club", "Dolphins", "ego-Facebook", "NetHEPT", "Email-Enron"]
 
 ALGO_OPTIONS = [
-    ("random", "Random"),
-    ("degree", "Degree Centrality"),
-    ("pagerank", "PageRank"),
-    ("degree_discount", "Degree Discount"),
     ("celf", "Greedy / CELF"),
     ("ga", "Baseline GA"),
     ("iga", "Improved GA"),
@@ -346,35 +346,6 @@ class _PythonEvaluator:
         return [self.evaluate(seeds) for seeds in seed_sets]
 
 
-class RandomSeeds(BaseAlgorithm):
-    def __init__(self):
-        super().__init__(name="Random")
-
-    def run(self, problem, seed: int = 42, max_evaluations=None, max_iterations=None):
-        rng = random.Random(seed)
-        started = time.perf_counter()
-        seeds = sorted(rng.sample(range(problem.num_nodes), problem.k))
-        solution = Solution(seeds)
-        search_end = time.perf_counter()
-        fitness = problem.fitness(solution)
-        total_end = time.perf_counter()
-        return AlgorithmResult(
-            algorithm_name=self.name,
-            best_solution=solution,
-            search_time=search_end - started,
-            total_evaluations=1,
-            metadata={"total_time": total_end - started, "fitness": fitness},
-        )
-
-
-def _search_mc(total_nodes: int, mc: int) -> int:
-    if total_nodes <= 80:
-        return max(1, min(mc, 30))
-    if total_nodes <= 150:
-        return max(1, min(mc, 12))
-    return max(1, min(mc, 6))
-
-
 def _evolution_params(full_n: int) -> dict:
     pop_size = 50 if full_n < 20000 else 100
     return {
@@ -388,14 +359,6 @@ def _evolution_params(full_n: int) -> dict:
 
 
 def _make_algorithm(code: str, total_nodes: int, params: dict):
-    if code == "random":
-        return RandomSeeds()
-    if code == "degree":
-        return DegreeCentrality()
-    if code == "degree_discount":
-        return DegreeDiscount(edge_probability=0.1)
-    if code == "pagerank":
-        return PageRankHeuristic(damping=0.85, max_iter=50)
     if code == "celf":
         return CELF()
     if code == "ga":
@@ -416,6 +379,7 @@ def _make_algorithm(code: str, total_nodes: int, params: dict):
             tournament_size=params["q"],
             elitism=params["E"],
         )
+    raise ValueError(f"Unknown algorithm code: {code}")
     raise ValueError(f"Thuật toán không hợp lệ: {code}")
 
 
@@ -438,7 +402,7 @@ def _top_individuals(history, k: int, graph, model: str, seed: int,
     if not ranked:
         ranked = [(tuple(best_seeds), float(best_spread))]
 
-    validation_runs = max(1, min(int(runs), 30))
+    validation_runs = max(1, int(runs))
     rng = random.Random(seed + 2024)
     individuals = []
     best_tuple = tuple(best_seeds)
@@ -458,10 +422,146 @@ def _top_individuals(history, k: int, graph, model: str, seed: int,
     return individuals
 
 
+def run_cpp_ga_on_graph(dataset: str, model: str, k: int, mc: int,
+                        params: dict, seed: int = -1,
+                        progress=None) -> dict:
+    if _im_core is None:
+        raise RuntimeError(
+            "C++ core (_im_core) chưa được build. Hãy build pybind11 extension trước."
+        )
+    if not model.upper().startswith("IC"):
+        raise ValueError("C++ GA hiện chỉ hỗ trợ mô hình Independent Cascade.")
+    model_label = model if "WC" in model.upper() else "IC (WC)"
+
+    seed = int(seed)
+    if seed < 0:
+        seed = int(time.time_ns() % (2 ** 63 - 1)) or 1
+
+    if progress:
+        progress(0.02)
+
+    nx_graph, meta = load_networkx_graph(dataset)
+    cpp_graph = build_cpp_graph(nx_graph, probability_mode="wc")
+    total_nodes = nx_graph.number_of_nodes()
+    k = max(1, min(int(k), total_nodes))
+    mc = max(1, int(mc))
+    params = dict(params)
+
+    if progress:
+        progress(0.15)
+
+    evaluator = _im_core.Evaluator(
+        cpp_graph,
+        _im_core.DiffusionModel.IndependentCascade,
+        num_mc_simulations=mc,
+        seed=seed,
+    )
+    problem = IMProblem(cpp_graph, k, evaluator)
+    algorithm = CppBaselineGA(
+        pop_size=params["N"],
+        max_generations=params["Tmax"],
+        crossover_rate=params["Pc"],
+        mutation_rate=params["Pm"],
+        tournament_size=params["q"],
+        elitism=params["E"],
+        num_mc=mc,
+    )
+
+    started = time.perf_counter()
+    result = algorithm.run(
+        problem,
+        seed=seed,
+        max_iterations=params["Tmax"],
+    )
+    seeds = sorted(int(node) for node in result.best_solution.seed_set)
+
+    if progress:
+        progress(0.75)
+
+    spread_values = [
+        int(value)
+        for value in evaluator.evaluate_replications(seeds, mc)
+    ]
+    if not spread_values:
+        spread_values = [int(result.best_solution.fitness or 0)]
+
+    mean_spread = sum(spread_values) / len(spread_values)
+    if len(spread_values) > 1:
+        variance = sum((value - mean_spread) ** 2 for value in spread_values) / len(spread_values)
+        std_spread = math.sqrt(variance)
+    else:
+        std_spread = 0.0
+
+    validation_rng = random.Random(seed + 9999)
+    timeline = simulate_diffusion(nx_graph, seeds, model_label, validation_rng)
+    finished = time.perf_counter()
+
+    cumulative = []
+    active = set()
+    for step in timeline:
+        active.update(step)
+        cumulative.append(len(active))
+
+    final_spread = spread_values[0] if spread_values else 0
+    individuals = [
+        dict(individual)
+        for individual in result.metadata.get("top_individuals", [])
+    ]
+    if not individuals:
+        individuals = [{
+            "rank": 1,
+            "seeds": seeds,
+            "fitness": float(result.best_solution.fitness or mean_spread),
+            "spread": mean_spread,
+        }]
+
+    for individual in individuals:
+        if list(individual.get("seeds", [])) == seeds:
+            individual["fitness"] = float(result.best_solution.fitness or mean_spread)
+            individual["spread"] = mean_spread
+
+    outcome_meta = {
+        key: value for key, value in meta.items()
+        if key != "id_mapping"
+    }
+    outcome_meta["reduced"] = False
+    outcome_meta["full_n"] = total_nodes
+    outcome_meta["backend"] = "cpp"
+
+    if progress:
+        progress(1.0)
+
+    return {
+        "code": "ga",
+        "name": ALGO_LABELS.get("ga", "Baseline GA"),
+        "algorithm_name": result.algorithm_name,
+        "dataset": meta.get("name", dataset),
+        "model": model_label,
+        "seeds": seeds,
+        "timeline": timeline,
+        "cumulative": cumulative,
+        "final_spread": final_spread,
+        "mean_spread": mean_spread,
+        "std_spread": std_spread,
+        "spreads": spread_values,
+        "total_nodes": total_nodes,
+        "full_n": total_nodes,
+        "ratio": final_spread / total_nodes if total_nodes else 0.0,
+        "mean_ratio": mean_spread / total_nodes if total_nodes else 0.0,
+        "execution_time": finished - started,
+        "params": params,
+        "individuals": individuals,
+        "meta": outcome_meta,
+        "seed": seed,
+        "generations": int(result.metadata.get("generations_completed", len(result.convergence_history))),
+    }
+
+
 def run_simulation_on_graph(graph, meta, dataset: str, model: str,
                             k: int, mc: int, algo_code: str,
                             seed: int = 42,
-                            progress=None) -> dict:
+                            progress=None,
+                            params: dict | None = None) -> dict:
     if nx is None:
         raise RuntimeError("Thiếu thư viện networkx.")
 
@@ -470,13 +570,18 @@ def run_simulation_on_graph(graph, meta, dataset: str, model: str,
     full_n = int(meta.get("full_n", total_nodes) or total_nodes)
     k = max(1, min(int(k), total_nodes))
     mc = max(1, int(mc))
-    params = _evolution_params(full_n)
+    seed = int(seed)
+    if seed < 0:
+        seed = int(time.time_ns() % (2 ** 63 - 1)) or 1
+    if algo_code == "celf":
+        seed = 42
+    params = dict(params) if params is not None else _evolution_params(full_n)
 
     if progress:
         progress(0.05)
 
     adapter = _NXAdapter(graph)
-    evaluator = _PythonEvaluator(graph, model, _search_mc(total_nodes, mc), seed)
+    evaluator = _PythonEvaluator(graph, model, mc, seed)
     problem = IMProblem(adapter, k, evaluator)
     algorithm = _make_algorithm(algo_code, total_nodes, params)
 
@@ -498,7 +603,7 @@ def run_simulation_on_graph(graph, meta, dataset: str, model: str,
     if progress:
         progress(0.70)
 
-    mc_val = max(1, min(mc, 100))
+    mc_val = max(1, mc)
     validation_rng = random.Random(seed + 9999)
     timelines = [
         simulate_diffusion(graph, seeds, model, validation_rng)
@@ -522,9 +627,17 @@ def run_simulation_on_graph(graph, meta, dataset: str, model: str,
         std_spread = 0.0
 
     final_spread = spreads[0] if spreads else 0
-    individuals = _top_individuals(
-        evaluator.history, k, graph, model, seed, mc_val, seeds, mean_spread,
-    )
+    if algo_code == "celf":
+        individuals = [{
+            "rank": 1,
+            "seeds": seeds,
+            "fitness": mean_spread,
+            "spread": mean_spread,
+        }]
+    else:
+        individuals = _top_individuals(
+            evaluator.history, k, graph, model, seed, mc_val, seeds, mean_spread,
+        )
 
     if progress:
         progress(1.0)
@@ -550,4 +663,119 @@ def run_simulation_on_graph(graph, meta, dataset: str, model: str,
         "params": dict(params),
         "individuals": individuals,
         "meta": meta,
+        "online_bound": (
+            result.metadata.get("online_bound")
+            if algo_code == "celf" else None
+        ),
+        "seed": seed,
+        "generations": int(getattr(result, "metadata", {}).get("generations_completed", len(getattr(result, "convergence_history", [])))),
+    }
+
+
+def run_celf_on_graph(dataset: str, model: str, k: int, mc: int,
+                      seed: int = 42, progress=None) -> dict:
+    if _im_core is None:
+        raise RuntimeError(
+            "C++ core (_im_core) chưa được build. Hãy build pybind11 extension trước."
+        )
+    if not model.upper().startswith("IC"):
+        raise ValueError("CELF hiện chỉ hỗ trợ mô hình Independent Cascade.")
+    model_label = model if "WC" in model.upper() else "IC (WC)"
+
+    seed = 42
+
+    if progress:
+        progress(0.02)
+
+    nx_graph, meta = load_networkx_graph(dataset)
+    cpp_graph = build_cpp_graph(nx_graph, probability_mode="wc")
+    total_nodes = nx_graph.number_of_nodes()
+    k = max(1, min(int(k), total_nodes))
+    mc = max(1, int(mc))
+
+    if progress:
+        progress(0.15)
+
+    evaluator = _im_core.Evaluator(
+        cpp_graph,
+        _im_core.DiffusionModel.IndependentCascade,
+        num_mc_simulations=mc,
+        seed=seed,
+    )
+    problem = IMProblem(cpp_graph, k, evaluator)
+    algorithm = CELF()
+
+    started = time.perf_counter()
+    result = algorithm.run(problem, seed=seed)
+    seeds = sorted(int(node) for node in result.best_solution.seed_set)
+
+    if progress:
+        progress(0.75)
+
+    spread_values = [
+        int(value)
+        for value in evaluator.evaluate_replications(seeds, mc)
+    ]
+    if not spread_values:
+        spread_values = [int(result.best_solution.fitness or 0)]
+
+    mean_spread = sum(spread_values) / len(spread_values)
+    if len(spread_values) > 1:
+        variance = sum((value - mean_spread) ** 2 for value in spread_values) / len(spread_values)
+        std_spread = math.sqrt(variance)
+    else:
+        std_spread = 0.0
+
+    validation_rng = random.Random(seed + 9999)
+    timeline = simulate_diffusion(nx_graph, seeds, model_label, validation_rng)
+    finished = time.perf_counter()
+
+    cumulative = []
+    active = set()
+    for step in timeline:
+        active.update(step)
+        cumulative.append(len(active))
+
+    final_spread = spread_values[0] if spread_values else 0
+
+    outcome_meta = {
+        key: value for key, value in meta.items()
+        if key != "id_mapping"
+    }
+    outcome_meta["reduced"] = False
+    outcome_meta["full_n"] = total_nodes
+    outcome_meta["backend"] = "cpp-evaluator"
+
+    if progress:
+        progress(1.0)
+
+    return {
+        "code": "celf",
+        "name": ALGO_LABELS.get("celf", "Greedy / CELF"),
+        "algorithm_name": getattr(result, "algorithm_name", "CELF"),
+        "dataset": meta.get("name", dataset),
+        "model": model_label,
+        "seeds": seeds,
+        "timeline": timeline,
+        "cumulative": cumulative,
+        "final_spread": final_spread,
+        "mean_spread": mean_spread,
+        "std_spread": std_spread,
+        "spreads": spread_values,
+        "total_nodes": total_nodes,
+        "full_n": total_nodes,
+        "ratio": final_spread / total_nodes if total_nodes else 0.0,
+        "mean_ratio": mean_spread / total_nodes if total_nodes else 0.0,
+        "execution_time": finished - started,
+        "params": {},
+        "individuals": [{
+            "rank": 1,
+            "seeds": seeds,
+            "fitness": mean_spread,
+            "spread": mean_spread,
+        }],
+        "meta": outcome_meta,
+        "online_bound": result.metadata.get("online_bound"),
+        "seed": seed,
+        "generations": len(result.convergence_history),
     }

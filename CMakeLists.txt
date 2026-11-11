@@ -25,6 +25,7 @@ add_library(im_core_lib STATIC
     cpp_core/src/diffusion.cpp
     cpp_core/src/monte_carlo.cpp
     cpp_core/src/evaluator.cpp
+    cpp_core/src/ga.cpp
 )
 
 target_include_directories(im_core_lib PUBLIC

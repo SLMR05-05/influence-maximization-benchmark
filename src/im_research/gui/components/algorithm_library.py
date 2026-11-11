@@ -3,10 +3,8 @@ import customtkinter as ctk
 from tkinter import messagebox
 
 ALGORITHMS = {
-    "Heuristic": ["Degree Centrality", "Degree Discount", "PageRank"],
     "Greedy": ["Greedy", "CELF"],
-    "Metaheuristic": ["Discrete PSO", "ACO"],
-    "Evolutionary": ["Baseline GA"],
+    "Evolutionary": ["Baseline GA (C++)", "IGA"],
 }
 
 class AlgorithmLibrary(ctk.CTkFrame):
@@ -17,7 +15,7 @@ class AlgorithmLibrary(ctk.CTkFrame):
     def build_ui(self):
         ctk.CTkLabel(self, text="Algorithm Library", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=10)
         # Group selector
-        self.group_var = ctk.StringVar(value="Heuristic")
+        self.group_var = ctk.StringVar(value="Greedy")
         group_frame = ctk.CTkFrame(self, fg_color="transparent")
         group_frame.pack(fill="x", padx=20, pady=5)
         for g in ALGORITHMS:

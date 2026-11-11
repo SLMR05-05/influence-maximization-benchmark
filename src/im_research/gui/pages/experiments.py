@@ -18,12 +18,17 @@ import customtkinter as ctk
 
 from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
+from im_research.gui.core.results_store import set_latest_run
 from im_research.gui.components.diffusion_simulator import (
     ALGO_LABELS,
     ALGO_OPTIONS,
+    CPP_CORE_AVAILABLE,
     DATASET_NAMES,
     compute_layout,
     load_graph_for_sim,
+    load_networkx_graph,
+    run_celf_on_graph,
+    run_cpp_ga_on_graph,
     run_simulation_on_graph,
 )
 
@@ -31,6 +36,27 @@ CHART_BG = "#0b1120"
 CHART_EDGE = "#1e293b"
 CHART_GRID = "#1e293b"
 CHART_TEXT = "#94a3b8"
+
+
+def _json_safe(value):
+    """Convert numpy/tuple/set values into plain JSON-serializable Python types."""
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (str, bool, int, float)) or value is None:
+        return value
+    if hasattr(value, "item"):
+        try:
+            return _json_safe(value.item())
+        except Exception:
+            pass
+    if hasattr(value, "tolist"):
+        try:
+            return _json_safe(value.tolist())
+        except Exception:
+            pass
+    return str(value)
 CHART_MUTED = "#64748b"
 
 NODE_INACTIVE = "#334155"
@@ -43,12 +69,8 @@ NODE_NEW = "#22c55e"
 NODE_NEW_EDGE = "#4ade80"
 
 ALGO_DESCRIPTIONS = {
-    "random": "Chọn ngẫu nhiên k đỉnh làm hạt giống",
-    "degree": "Chọn k đỉnh có bậc liên kết cao nhất",
-    "pagerank": "Chọn k đỉnh theo điểm PageRank (d = 0.85)",
-    "degree_discount": "Degree Discount (Chen et al., 2009)",
     "celf": "Greedy / CELF với cận tối ưu (1 - 1/e)",
-    "ga": "Genetic Algorithm baseline",
+    "ga": "Genetic Algorithm baseline (C++)",
     "iga": "Improved Genetic Algorithm (đề xuất)",
 }
 
@@ -74,6 +96,7 @@ class PageExperiments(ctk.CTkFrame):
         self._running = False
         self._speed = 5
         self._checkboxes = []
+        self.ga_entries = []
         self.algo_checks = {}
         self._build()
         self.after(60, self._load_preview)
@@ -211,6 +234,72 @@ class PageExperiments(ctk.CTkFrame):
             ),
         )
 
+        ga_head = ctk.CTkFrame(inner, fg_color="transparent")
+        ga_head.pack(fill="x", pady=(8, 0))
+        ctk.CTkLabel(
+            ga_head, text="Tham số GA (C++)",
+            font=FONT_SMALL, text_color=SUBTEXT_FG,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            ga_head, text="Có thể nhập tay; GA C++ dùng trực tiếp các giá trị này",
+            font=FONT_SMALL, text_color=SUBTEXT_FG,
+        ).pack(side="left", padx=(8, 0))
+
+        ga_fields = ctk.CTkFrame(inner, fg_color="transparent")
+        ga_fields.pack(fill="x", pady=(2, 2))
+        for column in range(3):
+            ga_fields.grid_columnconfigure(column, weight=1, uniform="ga")
+
+        self.ga_n_var = ctk.StringVar(value="50")
+        self.ga_q_var = ctk.StringVar(value="5")
+        self.ga_pc_var = ctk.StringVar(value="0.90")
+        self.ga_pm_var = ctk.StringVar(value="0.10")
+        self.ga_e_var = ctk.StringVar(value="2")
+        self.ga_tmax_var = ctk.StringVar(value="100")
+
+        def add_ga_field(row, column, label, variable, tooltip):
+            box = ctk.CTkFrame(ga_fields, fg_color="transparent")
+            box.grid(
+                row=row, column=column, sticky="ew",
+                padx=(0 if column == 0 else 10, 0), pady=(0, 4),
+            )
+            ctk.CTkLabel(
+                box, text=label, font=FONT_SMALL,
+                text_color=SUBTEXT_FG, anchor="w",
+            ).pack(anchor="w")
+            entry = ctk.CTkEntry(
+                box, textvariable=variable, **entry_style(),
+            )
+            entry.pack(fill="x", pady=(3, 0))
+            Tooltip(entry, tooltip)
+            self.ga_entries.append(entry)
+            return entry
+
+        self.ga_n_entry = add_ga_field(
+            0, 0, "N (QUẦN THỂ)", self.ga_n_var,
+            "Kích thước quần thể N của GA C++.",
+        )
+        self.ga_q_entry = add_ga_field(
+            0, 1, "q (TOURNAMENT)", self.ga_q_var,
+            "Số cá thể tham gia tournament chọn cha mẹ.",
+        )
+        self.ga_pc_entry = add_ga_field(
+            0, 2, "PC (LAI GHÉP)", self.ga_pc_var,
+            "Xác suất lai ghép Pc, trong khoảng 0..1.",
+        )
+        self.ga_pm_entry = add_ga_field(
+            1, 0, "PM (ĐỘT BIẾN)", self.ga_pm_var,
+            "Xác suất đột biến Pm, trong khoảng 0..1.",
+        )
+        self.ga_e_entry = add_ga_field(
+            1, 1, "E (ELITE)", self.ga_e_var,
+            "Số cá thể tốt nhất được giữ lại mỗi thế hệ.",
+        )
+        self.ga_tmax_entry = add_ga_field(
+            1, 2, "TMAX (VÒNG LẶP)", self.ga_tmax_var,
+            "Số thế hệ tối đa Tmax.",
+        )
+
         algo_head = ctk.CTkFrame(inner, fg_color="transparent")
         algo_head.pack(fill="x", pady=(6, 0))
         ctk.CTkLabel(
@@ -224,12 +313,12 @@ class PageExperiments(ctk.CTkFrame):
 
         algo_grid = ctk.CTkFrame(inner, fg_color="transparent")
         algo_grid.pack(fill="x", pady=(2, 2))
-        for column in range(4):
+        for column in range(3):
             algo_grid.grid_columnconfigure(column, weight=1, uniform="algo")
 
         for index, (code, name) in enumerate(ALGO_OPTIONS):
-            row, column = divmod(index, 4)
-            variable = ctk.BooleanVar(value=(code == "random"))
+            row, column = divmod(index, 3)
+            variable = ctk.BooleanVar(value=(code == "ga"))
             self.algo_checks[code] = variable
             checkbox = ctk.CTkCheckBox(
                 algo_grid, text=name, variable=variable, font=FONT_MAIN,
@@ -428,12 +517,6 @@ class PageExperiments(ctk.CTkFrame):
             ("spread", "Lan truyền cuối", "—"),
             ("ratio", "Tỷ lệ lan truyền", "—"),
             ("time", "Thời gian thực thi", "—"),
-            ("n_pop", "N (quần thể)", "—"),
-            ("q_tour", "q (tournament)", "—"),
-            ("pc", "Pc (lai ghép)", "—"),
-            ("pm", "Pm (đột biến)", "—"),
-            ("elite", "E (elite)", "—"),
-            ("tmax", "Tmax (vòng lặp)", "—"),
         ]
         self.stat_values = {}
         for index, (key, title, default) in enumerate(tiles):
@@ -459,32 +542,6 @@ class PageExperiments(ctk.CTkFrame):
             self.stat_values[key] = value_label
 
         self._seed_tooltip = Tooltip(self.stat_values["seeds"], "Chưa có dữ liệu")
-        self.param_tooltips = {
-            "n_pop": Tooltip(
-                self.stat_values["n_pop"],
-                "N = 50 nếu mạng dưới 20.000 đỉnh; N = 100 nếu từ 20.000 đỉnh trở lên.",
-            ),
-            "q_tour": Tooltip(
-                self.stat_values["q_tour"],
-                "Số cá thể tham gia tournament = 10% của N.",
-            ),
-            "pc": Tooltip(
-                self.stat_values["pc"],
-                "Tỷ lệ thực hiện lai ghép = 0.9.",
-            ),
-            "pm": Tooltip(
-                self.stat_values["pm"],
-                "Tỷ lệ đột biến cơ bản = 0.1.",
-            ),
-            "elite": Tooltip(
-                self.stat_values["elite"],
-                "Số cá thể tốt nhất giữ lại mỗi thế hệ = 4% của N.",
-            ),
-            "tmax": Tooltip(
-                self.stat_values["tmax"],
-                "Số vòng lặp tiến hóa tối đa = 100.",
-            ),
-        }
 
     def on_show(self):
         if not self._alive:
@@ -532,7 +589,10 @@ class PageExperiments(ctk.CTkFrame):
             f" · {_fmt_int(meta.get('m', 0))} cạnh"
         )
         if meta.get("reduced"):
-            text += f"  ·  lõi mô phỏng từ {_fmt_int(meta.get('full_n', meta.get('n', 0)))} đỉnh"
+            full_n = _fmt_int(meta.get("full_n", meta.get("n", 0)))
+            text += f"  ·  hiển thị rút gọn từ {full_n} đỉnh"
+            if CPP_CORE_AVAILABLE:
+                text += "  ·  GA C++ chạy toàn bộ đồ thị"
         self.graph_badge.configure(text=text)
 
     def _reset_results_display(self):
@@ -773,26 +833,6 @@ class PageExperiments(ctk.CTkFrame):
             text=f"{outcome['execution_time']:.3f} s",
         )
 
-        params = outcome.get("params", {})
-        self.stat_values["n_pop"].configure(
-            text=str(params.get("N", "—")),
-        )
-        self.stat_values["q_tour"].configure(
-            text=str(params.get("q", "—")),
-        )
-        self.stat_values["pc"].configure(
-            text=f"{params.get('Pc', 0.0):.2f}",
-        )
-        self.stat_values["pm"].configure(
-            text=f"{params.get('Pm', 0.0):.2f}",
-        )
-        self.stat_values["elite"].configure(
-            text=str(params.get("E", "—")),
-        )
-        self.stat_values["tmax"].configure(
-            text=str(params.get("Tmax", "—")),
-        )
-
         self._timeline = outcome["timeline"]
         self._step = 0
         self._update_step_label()
@@ -803,6 +843,7 @@ class PageExperiments(ctk.CTkFrame):
         for widget in (
             self.ds_menu, self.k_entry,
             self.mc_entry, self.run_btn,
+            *self.ga_entries,
         ):
             widget.configure(state=state)
         for checkbox in self._checkboxes:
@@ -853,10 +894,16 @@ class PageExperiments(ctk.CTkFrame):
         try:
             k = int(self.k_var.get().strip())
             mc = int(self.mc_var.get().strip())
+            n_pop = int(self.ga_n_var.get().strip())
+            q_tour = int(self.ga_q_var.get().strip())
+            elite = int(self.ga_e_var.get().strip())
+            tmax = int(self.ga_tmax_var.get().strip())
+            pc = float(self.ga_pc_var.get().strip().replace(",", "."))
+            pm = float(self.ga_pm_var.get().strip().replace(",", "."))
         except ValueError:
             messagebox.showerror(
                 "Tham số không hợp lệ",
-                "Kích thước hạt giống (k) và số lần Monte Carlo phải là số nguyên.",
+                "k, N, q, E, Tmax phải là số nguyên; Pc, Pm phải là số thực.",
             )
             return
 
@@ -864,6 +911,26 @@ class PageExperiments(ctk.CTkFrame):
             messagebox.showerror(
                 "Tham số không hợp lệ",
                 "Kích thước hạt giống (k) và số lần Monte Carlo phải lớn hơn 0.",
+            )
+            return
+
+        ga_errors = []
+        if n_pop < 2:
+            ga_errors.append("N phải lớn hơn hoặc bằng 2.")
+        if q_tour < 1 or q_tour > n_pop:
+            ga_errors.append("q phải nằm trong khoảng 1..N.")
+        if elite < 0 or elite >= n_pop:
+            ga_errors.append("E phải nằm trong khoảng 0..N-1.")
+        if tmax < 1:
+            ga_errors.append("Tmax phải lớn hơn hoặc bằng 1.")
+        if not 0.0 <= pc <= 1.0:
+            ga_errors.append("Pc phải nằm trong khoảng 0..1.")
+        if not 0.0 <= pm <= 1.0:
+            ga_errors.append("Pm phải nằm trong khoảng 0..1.")
+        if ga_errors:
+            messagebox.showerror(
+                "Tham số GA không hợp lệ",
+                "\n".join(ga_errors),
             )
             return
 
@@ -878,7 +945,15 @@ class PageExperiments(ctk.CTkFrame):
         if k > total_nodes:
             k = total_nodes
             self.k_var.set(str(k))
-        mc = min(mc, 500)
+
+        ga_params = {
+            "N": n_pop,
+            "q": q_tour,
+            "Pc": pc,
+            "Pm": pm,
+            "E": elite,
+            "Tmax": tmax,
+        }
 
         self._pause()
         self._running = True
@@ -891,13 +966,13 @@ class PageExperiments(ctk.CTkFrame):
             target=self._run_worker,
             args=(
                 self._graph, dict(self._meta), self.ds_var.get(),
-                self.model_var.get(), k, mc, selected,
+                self.model_var.get(), k, mc, selected, ga_params,
             ),
             daemon=True,
         )
         worker.start()
 
-    def _run_worker(self, graph, meta, dataset, model, k, mc, selected):
+    def _run_worker(self, graph, meta, dataset, model, k, mc, selected, params):
         outcomes = {}
         baseline = {}
         errors = {}
@@ -927,10 +1002,20 @@ class PageExperiments(ctk.CTkFrame):
                     )
 
                 try:
-                    outcome = run_simulation_on_graph(
-                        graph, meta, dataset, model, k, mc, code,
-                        seed=42, progress=report,
-                    )
+                    if code == "ga" and CPP_CORE_AVAILABLE:
+                        outcome = run_cpp_ga_on_graph(
+                            dataset, model, k, mc, params,
+                            progress=report,
+                        )
+                    elif code == "celf" and CPP_CORE_AVAILABLE:
+                        outcome = run_celf_on_graph(
+                            dataset, model, k, mc, progress=report,
+                        )
+                    else:
+                        outcome = run_simulation_on_graph(
+                            graph, meta, dataset, model, k, mc, code,
+                            progress=report, params=params,
+                        )
                     if is_baseline:
                         baseline[code] = outcome
                     else:
@@ -939,16 +1024,20 @@ class PageExperiments(ctk.CTkFrame):
                     if not is_baseline:
                         errors[code] = str(error)
 
+            save_error = None
             if outcomes:
-                self._save_results(
-                    outcomes, dataset, model, k, mc, baseline,
-                )
+                try:
+                    self._save_results(
+                        outcomes, dataset, model, k, mc, baseline,
+                    )
+                except Exception as error:
+                    save_error = str(error)
 
-            self._schedule_ui(self._post_complete, outcomes, errors)
+            self._schedule_ui(self._post_complete, outcomes, errors, save_error)
         except Exception as error:
             self._schedule_ui(self._post_error, str(error))
 
-    def _post_complete(self, outcomes, errors):
+    def _post_complete(self, outcomes, errors, save_error=None):
         if not self._alive:
             return
 
@@ -985,6 +1074,13 @@ class PageExperiments(ctk.CTkFrame):
                 text_color=GREEN,
             )
 
+        if save_error:
+            messagebox.showwarning(
+                "Chưa lưu được kết quả",
+                "Kết quả đã chạy xong nhưng không ghi được vào thư mục runs/:\n"
+                f"{save_error}",
+            )
+
     def _post_error(self, message):
         if not self._alive:
             return
@@ -994,83 +1090,98 @@ class PageExperiments(ctk.CTkFrame):
         messagebox.showerror("Lỗi mô phỏng", message)
 
     def _save_results(self, outcomes, dataset, model, k, mc, baseline=None):
-        try:
-            runs_dir = PROJECT_ROOT / "runs"
-            runs_dir.mkdir(parents=True, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        """Persist one experiment run so the Results / Comparison pages can show it."""
+        runs_dir = PROJECT_ROOT / "runs"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            def build_rows(items):
-                ordered = sorted(
-                    items.values(),
-                    key=lambda outcome: outcome["mean_spread"],
-                    reverse=True,
-                )
-                rows = []
-                for rank, outcome in enumerate(ordered, start=1):
-                    spreads = outcome.get("spreads", [])
-                    best_spread = max(spreads) if spreads else outcome["mean_spread"]
-                    rows.append({
-                        "algorithm": outcome["name"],
-                        "code": outcome["code"],
-                        "mean_spread": round(outcome["mean_spread"], 2),
-                        "std_spread": round(outcome["std_spread"], 2),
-                        "mean_time": round(outcome["execution_time"], 3),
-                        "best_spread": round(best_spread, 2),
-                        "rank": f"#{rank}",
-                        "individuals": outcome.get("individuals", []),
-                    })
-                return rows, ordered
-
-            summary, ordered = build_rows(outcomes)
-            baseline_summary, _ = build_rows(baseline or {})
-
-            details = {}
-            for outcome in ordered:
-                details[outcome["name"]] = {
-                    "spreads": [round(value, 4) for value in outcome["spreads"]],
-                    "times": [round(outcome["execution_time"], 4)],
-                    "seeds": [outcome["seeds"]],
+        def build_rows(items):
+            ordered = sorted(
+                items.values(),
+                key=lambda outcome: outcome["mean_spread"],
+                reverse=True,
+            )
+            rows = []
+            for rank, outcome in enumerate(ordered, start=1):
+                spreads = outcome.get("spreads", [])
+                best_spread = max(spreads) if spreads else outcome["mean_spread"]
+                rows.append({
+                    "algorithm": outcome["name"],
+                    "code": outcome["code"],
+                    "algorithm_name": outcome.get("algorithm_name", outcome["name"]),
+                    "model": outcome.get("model", model),
+                    "mean_spread": round(outcome["mean_spread"], 2),
+                    "std_spread": round(outcome["std_spread"], 2),
+                    "final_spread": round(outcome.get("final_spread", 0), 2),
+                    "best_spread": round(best_spread, 2),
+                    "mean_ratio": round(outcome.get("mean_ratio", 0.0), 4),
+                    "ratio": round(outcome.get("ratio", 0.0), 4),
+                    "total_nodes": outcome.get("total_nodes", 0),
+                    "mean_time": round(outcome["execution_time"], 3),
+                    "rank": f"#{rank}",
+                    "seeds": [int(node) for node in outcome.get("seeds", [])],
+                    "params": outcome.get("params", {}),
                     "individuals": outcome.get("individuals", []),
-                }
+                    "online_bound": outcome.get("online_bound"),
+                    "seed": outcome.get("seed"),
+                    "generations": outcome.get("generations"),
+                })
+            return rows, ordered
 
-            payload = {
-                "dataset": dataset,
-                "k": k,
-                "model": model,
-                "mc": mc,
-                "mc_val": mc,
-                "runs": 1,
-                "timestamp": timestamp,
-                "params": ordered[0].get("params", {}) if ordered else {},
-                "summary": summary,
-                "baseline": baseline_summary,
-                "details": details,
+        summary, ordered = build_rows(outcomes)
+        baseline_summary, _ = build_rows(baseline or {})
+
+        details = {}
+        for outcome in ordered:
+            details[outcome["name"]] = {
+                "spreads": [round(float(value), 4) for value in outcome.get("spreads", [])],
+                "times": [round(float(outcome["execution_time"]), 4)],
+                "seeds": [[int(node) for node in outcome.get("seeds", [])]],
+                "params": outcome.get("params", {}),
+                "individuals": outcome.get("individuals", []),
             }
 
-            latest_path = runs_dir / "latest_results.json"
-            with open(latest_path, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2, ensure_ascii=False)
+        payload = {
+            "dataset": dataset,
+            "k": k,
+            "model": model,
+            "mc": mc,
+            "mc_val": mc,
+            "runs": 1,
+            "timestamp": timestamp,
+            "params": ordered[0].get("params", {}) if ordered else {},
+            "summary": summary,
+            "baseline": baseline_summary,
+            "details": details,
+        }
 
-            experiment_dir = runs_dir / f"EXP_{timestamp}"
-            experiment_dir.mkdir(parents=True, exist_ok=True)
-            with open(experiment_dir / "summary.json", "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2, ensure_ascii=False)
+        payload = _json_safe(payload)
+        set_latest_run(payload)
 
-            history_path = runs_dir / "results_history.json"
-            history = []
-            if history_path.exists():
-                try:
-                    with open(history_path, "r", encoding="utf-8") as handle:
-                        loaded = json.load(handle)
-                    if isinstance(loaded, list):
-                        history = loaded
-                except Exception:
-                    history = []
-            history.append(payload)
-            with open(history_path, "w", encoding="utf-8") as handle:
-                json.dump(history, handle, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
+        latest_path = runs_dir / "latest_results.json"
+        with open(latest_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+
+        experiment_dir = runs_dir / f"EXP_{timestamp}"
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+        with open(experiment_dir / "summary.json", "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+
+        history_path = runs_dir / "results_history.json"
+        history = []
+        if history_path.exists():
+            try:
+                with open(history_path, "r", encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+                if isinstance(loaded, list):
+                    history = loaded
+            except Exception:
+                history = []
+        history.append(payload)
+        with open(history_path, "w", encoding="utf-8") as handle:
+            json.dump(history, handle, indent=2, ensure_ascii=False)
+
+        return timestamp
 
     def destroy(self):
         self._alive = False

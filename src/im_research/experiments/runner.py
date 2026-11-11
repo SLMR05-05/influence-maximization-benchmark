@@ -24,19 +24,21 @@ import numpy as np
 from im_research import _im_core
 from im_research.data.loader import load_graph
 from im_research.core.problem import IMProblem
-from im_research.algorithms.heuristics.degree import DegreeCentrality
-from im_research.algorithms.heuristics.degree_discount import DegreeDiscount
-from im_research.algorithms.heuristics.pagerank import PageRankHeuristic
 from im_research.algorithms.greedy.celf import CELF
-from im_research.algorithms.evolutionary.ga import BaselineGA
+from im_research.algorithms.evolutionary.cpp_ga import CppBaselineGA
 
 ALGORITHM_REGISTRY = {
-    "degree": lambda **kw: DegreeCentrality(),
-    "degree_discount": lambda **kw: DegreeDiscount(edge_probability=0.1),
-    "pagerank": lambda **kw: PageRankHeuristic(damping=0.85, max_iter=30),
     "celf": lambda **kw: CELF(),
-    "ga": lambda **kw: BaselineGA(pop_size=kw.get("pop_size", 50), max_generations=kw.get("max_gen", 100)),
-    "baseline_ga": lambda **kw: BaselineGA(pop_size=kw.get("pop_size", 50), max_generations=kw.get("max_gen", 100)),
+    "ga": lambda **kw: CppBaselineGA(
+        pop_size=kw.get("pop_size", 50),
+        max_generations=kw.get("max_gen", 100),
+        num_mc=kw.get("mc"),
+    ),
+    "baseline_ga": lambda **kw: CppBaselineGA(
+        pop_size=kw.get("pop_size", 50),
+        max_generations=kw.get("max_gen", 100),
+        num_mc=kw.get("mc"),
+    ),
 }
 
 
@@ -55,7 +57,7 @@ def parse_args():
 
 def run_experiments():
     args = parse_args()
-    selected_algos = args.algos or ["celf", "ga", "degree_discount", "pagerank", "degree"]
+    selected_algos = args.algos or ["celf", "ga"]
 
     print("=" * 70)
     print("      IM-Benchmark-Lab — INFLUENCE MAXIMIZATION EXPERIMENT RUNNER")
@@ -71,7 +73,7 @@ def run_experiments():
 
     # 1. Load Dataset
     print(f"[1/4] Loading graph dataset '{args.dataset}'...")
-    cpp_graph, meta = load_graph(args.dataset, p=0.1)
+    cpp_graph, meta = load_graph(args.dataset, probability_mode="wc")
     print(f"      Graph loaded: {cpp_graph.num_nodes()} nodes, {cpp_graph.num_edges()} edges")
 
     # 2. Setup C++ Shared Evaluator
@@ -125,6 +127,8 @@ def run_experiments():
             run_solutions.append(res.best_solution.seed_set)
 
             print(f"   [Run {r+1}/{args.runs}] Spread: {val_spread:.2f} | Time: {t_elapsed:.3f}s | Seeds: {res.best_solution.seed_set[:5]}...")
+            if "online_bound" in getattr(res, "metadata", {}):
+                print(f"           Online Bound (upper bound on OPT): {res.metadata['online_bound']:.2f}")
 
         mean_spread = float(np.mean(run_spreads))
         std_spread = float(np.std(run_spreads))

@@ -54,6 +54,8 @@ def test_celf(karate_problem):
     res = algo.run(karate_problem, seed=42)
     assert len(res.best_solution.seed_set) == 3
     assert res.best_solution.fitness > 0
+    assert res.metadata.get("online_bound") is not None
+    assert res.metadata["online_bound"] >= res.best_solution.fitness - 1e-6
 
 
 def test_baseline_ga(karate_problem):

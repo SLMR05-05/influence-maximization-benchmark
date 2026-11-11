@@ -39,30 +39,6 @@ ALGORITHMS = [
         "status": "Sẵn sàng",
         "color": ORANGE,
     },
-    {
-        "name": "Degree Discount",
-        "group": "Topological Heuristic",
-        "complexity": "O(k log |V| + |E|)",
-        "description": "Heuristic đồ thị: Giảm bậc lân cận của đỉnh đã chọn để hạn chế trùng lặp lan truyền",
-        "status": "Sẵn sàng",
-        "color": GREEN,
-    },
-    {
-        "name": "PageRank",
-        "group": "Graph Centrality",
-        "complexity": "O(I · (|V| + |E|))",
-        "description": "Thước đo độ trung tâm ngẫu nhiên: Random walk với hệ số cản d = 0.85",
-        "status": "Sẵn sàng",
-        "color": PURPLE,
-    },
-    {
-        "name": "Degree (Max Degree)",
-        "group": "Baseline Heuristic",
-        "complexity": "O(|V| log k)",
-        "description": "Heuristic cơ sở: Lựa chọn k đỉnh có bậc liên kết cao nhất trên toàn đồ thị",
-        "status": "Sẵn sàng",
-        "color": SUBTEXT_FG,
-    },
 ]
 
 
@@ -92,7 +68,7 @@ class PageDashboard(ctk.CTkScrollableFrame):
         metric_card(grid, "Tổng số thí nghiệm", str(exp_count), f"{exp_count} lượt chạy hoàn thành", BLUE if exp_count > 0 else SUBTEXT_FG, 0, 0)
         metric_card(grid, "Bộ dữ liệu chuẩn", "5 / 5", "Dữ liệu gốc sẵn sàng", GREEN, 1, 0)
         metric_card(grid, "C++ Core Engine", "OpenMP", "Đa luồng song song", PURPLE, 2, 0)
-        metric_card(grid, "Thuật toán thư viện", "6", "IGA + 5 Baselines", RED, 3, 0)
+        metric_card(grid, "Thuật toán thư viện", "3", "IGA + GA (C++) + CELF", RED, 3, 0)
 
         # ── Quick Action Banner ───────────────────────────────────────────────
         banner = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,

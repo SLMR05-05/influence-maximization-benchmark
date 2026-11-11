@@ -20,9 +20,12 @@ public:
     Evaluator(std::shared_ptr<const Graph> graph,
               DiffusionModel model = DiffusionModel::IndependentCascade,
               uint32_t num_mc_simulations = 1000,
-              uint64_t seed = 42);
+              int64_t seed = 42);
 
     double evaluate(const std::vector<uint32_t>& seed_set);
+
+    std::vector<uint32_t> evaluate_replications(const std::vector<uint32_t>& seed_set,
+                                                 uint32_t num_replications);
 
     /**
      * @brief Pygmo-style batch evaluation.
@@ -40,17 +43,17 @@ public:
     void set_num_mc_simulations(uint32_t mc) { num_mc_simulations_ = mc; }
     uint32_t num_mc_simulations() const { return num_mc_simulations_; }
 
-    void set_seed(uint64_t seed);
-    uint64_t seed() const { return base_seed_; }
+    void set_seed(int64_t seed);
+    int64_t seed() const { return base_seed_; }
 
-    const Graph& graph() const { return *graph_; }
     DiffusionModel model() const { return model_; }
+    const Graph& graph() const { return *graph_; }
 
 private:
     std::shared_ptr<const Graph> graph_;
     DiffusionModel model_;
     uint32_t num_mc_simulations_;
-    uint64_t base_seed_;
+    int64_t base_seed_;
 
     uint64_t total_evaluations_{0};
     uint64_t total_mc_simulations_{0};
