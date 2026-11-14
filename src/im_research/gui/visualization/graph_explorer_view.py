@@ -494,13 +494,44 @@ class GraphExplorerView(ctk.CTkFrame):
                 sub_nodes.update(list(g_full.neighbors(s))[:30])
             display_g = g_full.subgraph(sub_nodes).copy()
         else:
-            txt = RAW_DIR / "karate.txt"
-            g_full = nx.read_edgelist(txt, nodetype=int) if txt.exists() else nx.karate_club_graph()
-            display_g = g_full
-            full_n, full_m = 34, 78
-            avg_deg = 4.59
-            density_val = 0.1390
-            badge_text = "✓ Dữ liệu thật Zachary (1977)"
+            # Check if this matches any custom or dynamic dataset from configs/datasets/*.yaml
+            cfg = None
+            for c in self.dataset_configs:
+                if c["name"].lower() in name_clean or c["identifier"].lower() in name_clean:
+                    cfg = c
+                    break
+
+            if cfg and Path(cfg["raw_path"]).exists():
+                custom_txt = Path(cfg["raw_path"])
+                try:
+                    g_full = nx.read_edgelist(custom_txt, nodetype=int, comments="#")
+                except Exception:
+                    g_full = nx.read_edgelist(custom_txt, comments="#")
+                    g_full = nx.convert_node_labels_to_integers(g_full)
+
+                full_n = cfg.get("raw_n", g_full.number_of_nodes())
+                full_m = cfg.get("raw_m", g_full.number_of_edges())
+                avg_deg = cfg.get("raw_avg_deg", (2.0 * full_m) / full_n if full_n > 0 else 0)
+                density_val = (2.0 * full_m) / (full_n * (full_n - 1)) if full_n > 1 else 0.0
+                badge_text = f"✓ {cfg['name']} ({cfg.get('source', 'Tùy chỉnh')})"
+
+                if full_n > 200:
+                    degrees = dict(g_full.degree())
+                    top_seeds = sorted(degrees.keys(), key=lambda u: degrees[u], reverse=True)[:5]
+                    sub_nodes = set(top_seeds)
+                    for s in top_seeds:
+                        sub_nodes.update(list(g_full.neighbors(s))[:35])
+                    display_g = g_full.subgraph(sub_nodes).copy()
+                else:
+                    display_g = g_full
+            else:
+                txt = RAW_DIR / "karate.txt"
+                g_full = nx.read_edgelist(txt, nodetype=int) if txt.exists() else nx.karate_club_graph()
+                display_g = g_full
+                full_n, full_m = 34, 78
+                avg_deg = 4.59
+                density_val = 0.1390
+                badge_text = "✓ Dữ liệu thật Zachary (1977)"
 
         display_g = nx.convert_node_labels_to_integers(display_g)
         self.full_graph = g_full

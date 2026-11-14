@@ -17,6 +17,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIGS_DIR = PROJECT_ROOT / "configs" / "datasets"
 DEFAULT_RAW_DIR = PROJECT_ROOT / "data" / "raw"
 
+PROTECTED_DATASET_IDS = {"karate", "dolphins", "facebook", "nethept", "enron"}
+
 # Palette colors assigned cyclically to datasets
 BADGE_PALETTE = [
     "#10b981",  # Emerald / Green (Karate)
@@ -113,6 +115,7 @@ def load_all_dataset_configs(configs_dir: Optional[Path] = None) -> List[Dict[st
                 "default_k_values": data.get("default_k_values", [5, 10, 15, 20]),
                 "config_file": yf.name,
                 "exists_on_disk": raw_path.exists(),
+                "is_protected": ident.lower() in PROTECTED_DATASET_IDS,
             }
             datasets.append(ds_item)
 
@@ -150,6 +153,23 @@ def import_dataset_yaml_file(src_yaml_path: Path, target_dir: Optional[Path] = N
     return data
 
 
+def delete_dataset_config(identifier: str) -> bool:
+    """
+    Safely deletes a custom dataset configuration from configs/datasets/.
+    Benchmark datasets (karate, dolphins, facebook, nethept, enron) are protected.
+    """
+    ident_clean = identifier.lower().strip()
+    if ident_clean in PROTECTED_DATASET_IDS:
+        raise PermissionError(f"Không thể xóa bộ dữ liệu chuẩn: {identifier}")
+
+    yaml_path = DEFAULT_CONFIGS_DIR / f"{ident_clean}.yaml"
+    deleted = False
+    if yaml_path.exists():
+        yaml_path.unlink()
+        deleted = True
+    return deleted
+
+
 def generate_config_from_edgelist(
     name: str,
     edgelist_path: Path,
@@ -171,23 +191,37 @@ def generate_config_from_edgelist(
     if not edgelist_path.exists():
         raise FileNotFoundError(f"Không tìm thấy tệp đồ thị: {edgelist_path}")
 
-    # Read graph using networkx
-    g = nx.read_edgelist(edgelist_path, nodetype=int)
+    # Read graph using networkx (handle integer or string labels, comments)
+    try:
+        g = nx.read_edgelist(edgelist_path, nodetype=int, comments="#")
+    except Exception:
+        try:
+            g = nx.read_edgelist(edgelist_path, comments="#")
+            g = nx.convert_node_labels_to_integers(g)
+        except Exception as e:
+            raise ValueError(f"Không thể đọc tệp danh sách cạnh đồ thị: {e}")
+
     n = g.number_of_nodes()
     m = g.number_of_edges()
     avg_deg = (2.0 * m) / n if n > 0 else 0.0
 
     # Approximate clustering if graph is moderate/small
-    if n <= 5000:
-        clust = float(nx.average_clustering(g))
-    else:
-        # Sample for large graphs
-        clust = float(nx.average_clustering(g, count=1000))
+    try:
+        if n <= 5000:
+            clust = float(nx.average_clustering(g))
+        else:
+            # Sample for large graphs
+            clust = float(nx.average_clustering(g, count=1000))
+    except Exception:
+        clust = 0.0
 
     # Diameter approximation or calculation
-    if n <= 1000 and nx.is_connected(g):
-        diam = int(nx.diameter(g))
-    else:
+    try:
+        if n <= 1000 and nx.is_connected(g):
+            diam = int(nx.diameter(g))
+        else:
+            diam = "—"
+    except Exception:
         diam = "—"
 
     ident = re.sub(r"[^a-zA-Z0-9_]", "_", name.lower()).strip("_")

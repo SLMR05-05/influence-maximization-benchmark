@@ -38,11 +38,18 @@ class PageExperiments(ctk.CTkScrollableFrame):
 
         # Dataset Select
         make_row("Bộ dữ liệu (Graph):", 0)
-        self.ds_var = ctk.StringVar(value="Karate Club")
-        ctk.CTkOptionMenu(
+        try:
+            from im_research.data.config_loader import load_all_dataset_configs
+            ds_cfgs = load_all_dataset_configs()
+            ds_values = [d["name"] for d in ds_cfgs] if ds_cfgs else ["Karate Club", "Dolphins", "ego-Facebook", "NetHEPT", "Email-Enron"]
+        except Exception:
+            ds_values = ["Karate Club", "Dolphins", "ego-Facebook", "NetHEPT", "Email-Enron"]
+        self.ds_var = ctk.StringVar(value=ds_values[0] if ds_values else "Karate Club")
+        self.opt_dataset = ctk.CTkOptionMenu(
             form, variable=self.ds_var, width=240,
-            values=["Karate Club", "Dolphins", "ego-Facebook", "NetHEPT", "Email-Enron"]
-        ).grid(row=0, column=1, padx=16, pady=8, sticky="w")
+            values=ds_values
+        )
+        self.opt_dataset.grid(row=0, column=1, padx=16, pady=8, sticky="w")
 
         # Model — fixed to IC (LT is not implemented by the C++ engine)
         make_row("Mô hình lan truyền:", 1)
