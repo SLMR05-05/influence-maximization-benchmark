@@ -44,6 +44,15 @@ public:
         return &edge_probs_[row_ptr_[u]];
     }
 
+    float edge_prob(uint32_t u, uint32_t v) const {
+        for (uint32_t i = row_ptr_[u]; i < row_ptr_[u + 1]; ++i) {
+            if (col_indices_[i] == v) {
+                return edge_probs_[i];
+            }
+        }
+        return -1.0f;
+    }
+
     const std::vector<uint32_t>& row_ptr() const { return row_ptr_; }
     const std::vector<uint32_t>& col_indices() const { return col_indices_; }
     const std::vector<float>& edge_probs() const { return edge_probs_; }
@@ -52,6 +61,20 @@ public:
                                 const std::vector<std::pair<uint32_t, uint32_t>>& edges,
                                 const std::vector<float>& probs,
                                 bool is_directed = false);
+
+    /**
+     * @brief Build a graph using the Weighted Cascade probability assignment.
+     *
+     * For an undirected edge {u, v}, the two directed arcs receive:
+     *   p(u -> v) = 1 / deg(v)
+     *   p(v -> u) = 1 / deg(u)
+     *
+     * For a directed graph, p(u -> v) = 1 / in_degree(v).
+     * Self-loops are ignored.
+     */
+    static Graph from_edge_list_wc(uint32_t num_nodes,
+                                   const std::vector<std::pair<uint32_t, uint32_t>>& edges,
+                                   bool is_directed = false);
 
 private:
     uint32_t num_nodes_;

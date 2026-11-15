@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""
-IM-Benchmark-Lab — Influence Maximization Research Platform
-Main Desktop Application using CustomTkinter
-Modern UI Redesign with structured Brand Sidebar, Top Header Breadcrumb, and Status Bar.
+"""Main Application Window for IM-Benchmark-Lab.
+
+Unified Desktop Platform for Influence Maximization Research:
+- Pure CustomTkinter UI (no native Tkinter widget flicker)
+- Dark / Light / System modern theme
+- Left sidebar navigation
+- Top breadcrumb and system health indicators
+- Real-time logging & C++ OpenMP Batch Evaluator
 """
 
+from __future__ import annotations
 import sys
 from pathlib import Path
 
@@ -13,14 +18,16 @@ if str(PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import customtkinter as ctk
+
 from im_research.gui.core.theme import *
-from im_research.gui.core.tooltip import Tooltip
 from im_research.gui.core.sidebar import Sidebar
 from im_research.gui.core.top_header import TopHeader
 from im_research.gui.core.status_bar import StatusBar
 from im_research.gui.core.icon_factory import IconSet
 
 from im_research.gui.pages.dashboard import PageDashboard
+from im_research.gui.pages.results import PageResults
+from im_research.gui.pages.comparison import PageComparison
 from im_research.gui.pages.datasets import PageDatasets
 from im_research.gui.pages.statistics import PageStatistics
 from im_research.gui.pages.experiments import PageExperiments
@@ -32,19 +39,21 @@ from im_research.gui.pages.settings import PageSettings
 class IMApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("IM-Benchmark-Lab — Influence Maximization Research Platform")
-        self.geometry("1420x880")
-        self.minsize(1080, 720)
 
-        # High-DPI icon generator
-        self.icon_set = IconSet(target_size=20)
+        self.title("IM-Benchmark-Lab — Nền tảng Thí nghiệm Tối đa hóa Lan truyền")
+        self.geometry("1400x880")
+        self.minsize(1100, 700)
+        self.configure(fg_color=BG_APP)
 
+        self.icon_set = IconSet()
+
+        # Page registry
         self.pages = {
             "dashboard":   lambda m: PageDashboard(m, on_switch_tab=self.navigate),
             "datasets":    PageDatasets,
             "statistics":  lambda m: PageStatistics(m, on_switch_tab=self.navigate),
-            "results":     lambda m: PageStatistics(m, on_switch_tab=self.navigate, initial_subtab="spread"),
-            "comparison":  lambda m: PageStatistics(m, on_switch_tab=self.navigate, initial_subtab="overview"),
+            "results":     lambda m: PageResults(m, on_switch_tab=self.navigate),
+            "comparison":  lambda m: PageComparison(m, on_switch_tab=self.navigate),
             "experiments": PageExperiments,
             "reports":     lambda m: PageReports(m, on_switch_tab=self.navigate),
             "runtime":     PageSystemRuntime,
@@ -82,11 +91,11 @@ class IMApp(ctk.CTk):
         )
         self.sidebar.pack(side="left", fill="y")
 
-        # ── Right Main Content Area ───────────────────────────────────────────
+        # ── Right Panel: Top Header + Content View + Status Bar ───────────────
         right_panel = ctk.CTkFrame(self, fg_color=BG_APP, corner_radius=0)
         right_panel.pack(side="right", fill="both", expand=True)
 
-        # Top Application Header with Breadcrumb and Status Pills
+        # Top Application Breadcrumb & Status Header
         self.top_header = TopHeader(
             right_panel,
             icon_set=self.icon_set,
@@ -109,27 +118,24 @@ class IMApp(ctk.CTk):
         if key not in self.pages:
             return
 
-        # Map subtab aliases to the base statistics page
-        target_cache_key = "statistics" if key in ("results", "comparison") else key
-        sidebar_key = target_cache_key
-
         # Hide currently visible page (instantaneous pack_forget, NO destruction)
         if self._page_widget:
             self._page_widget.pack_forget()
 
         # Retrieve from cache or lazy-load once
-        if target_cache_key in self._page_cache:
-            page = self._page_cache[target_cache_key]
+        if key in self._page_cache:
+            page = self._page_cache[key]
         else:
-            factory = self.pages[target_cache_key]
+            factory = self.pages[key]
             page = factory(self.content_container)
-            self._page_cache[target_cache_key] = page
+            self._page_cache[key] = page
 
-        # If navigating via shortcut to a specific subtab in statistics
-        if key == "results" and hasattr(page, "switch_subtab"):
-            page.switch_subtab("spread")
-        elif key == "comparison" and hasattr(page, "switch_subtab"):
-            page.switch_subtab("overview")
+        # Call on_show callback if page has one (e.g. PageResults, PageComparison)
+        if hasattr(page, "on_show"):
+            try:
+                page.on_show()
+            except Exception:
+                pass
 
         # Show page instantaneously
         page.pack(fill="both", expand=True)
@@ -137,10 +143,10 @@ class IMApp(ctk.CTk):
         self._current_page_key = key
 
         if hasattr(self, "top_header"):
-            self.top_header.set_page(sidebar_key)
+            self.top_header.set_page(key)
 
-        if hasattr(self, "sidebar") and self.sidebar._active_key != sidebar_key:
-            self.sidebar.activate(sidebar_key)
+        if hasattr(self, "sidebar") and self.sidebar._active_key != key:
+            self.sidebar.activate(key)
 
 
 if __name__ == "__main__":

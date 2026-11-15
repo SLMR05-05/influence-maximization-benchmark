@@ -9,14 +9,14 @@ Supports standard benchmarks:
 """
 
 from __future__ import annotations
-import os
-from pathlib import Path
-from typing import Tuple, List
-import urllib.request
 import gzip
 import shutil
+import urllib.request
+from pathlib import Path
+from typing import Tuple, List
 
 import networkx as nx
+
 try:
     from im_research import _im_core
 except ImportError:
@@ -28,6 +28,98 @@ SNAP_URLS = {
     "facebook": "https://snap.stanford.edu/data/facebook_combined.txt.gz",
     "enron": "https://snap.stanford.edu/data/email-Enron.txt.gz",
 }
+
+
+def load_networkx_graph(dataset_name: str) -> Tuple[nx.Graph, dict]:
+    name_clean = dataset_name.lower().replace(" ", "").replace("-", "").replace("_", "")
+
+    if "karate" in name_clean:
+        nx_g = nx.karate_club_graph()
+        source = "Zachary (1977)"
+        display_name = "Karate Club"
+    elif "dolphin" in name_clean:
+        nx_g = _get_dolphins_graph()
+        source = "Lusseau (2003)"
+        display_name = "Dolphins"
+    elif "facebook" in name_clean:
+        nx_g = _load_snap_edge_list("facebook", SNAP_URLS["facebook"])
+        source = "SNAP [8]"
+        display_name = "ego-Facebook"
+    elif "enron" in name_clean:
+        nx_g = _load_snap_edge_list("enron", SNAP_URLS["enron"])
+        source = "SNAP [8]"
+        display_name = "Email-Enron"
+    elif "nethept" in name_clean or "hept" in name_clean:
+        nx_g = _load_nethept_graph()
+        source = "arXiv / SNAP [15]"
+        display_name = "NetHEPT"
+    else:
+        nx_g = nx.karate_club_graph()
+        source = "Zachary (1977)"
+        display_name = dataset_name
+
+    original_nodes = list(nx_g.nodes())
+    ordered_nodes = sorted(original_nodes)
+    relabel = {old: new for new, old in enumerate(ordered_nodes)}
+    nx_g = nx.relabel_nodes(nx_g, relabel, copy=True)
+    nx_g = nx.Graph(nx_g)
+    nx_g.remove_edges_from(list(nx.selfloop_edges(nx_g)))
+
+    if nx_g.number_of_nodes() == 0:
+        raise ValueError(f"Graph dataset '{dataset_name}' is empty after preprocessing")
+
+    nx_g = nx.convert_node_labels_to_integers(nx_g, ordering="sorted")
+
+    meta = {
+        "name": display_name,
+        "n": nx_g.number_of_nodes(),
+        "m": nx_g.number_of_edges(),
+        "source": source,
+        "directed": False,
+        "preprocessed": True,
+        "self_loops_removed": True,
+        "duplicate_edges_removed": True,
+        "id_mapping": ordered_nodes,
+    }
+    return nx_g, meta
+
+
+def build_cpp_graph(
+    nx_g: nx.Graph,
+    probability_mode: str = "wc",
+    p: float = 0.1,
+):
+    if _im_core is None:
+        raise RuntimeError(
+            "C++ core (_im_core) is not built. Build the pybind11 extension first."
+        )
+
+    n = nx_g.number_of_nodes()
+    edges = list(nx_g.edges())
+
+    mode = probability_mode.lower()
+    if mode in ("wc", "weighted", "weighted_cascade"):
+        if hasattr(_im_core.Graph, "from_edge_list_wc"):
+            return _im_core.Graph.from_edge_list_wc(n, edges, is_directed=False)
+        else:
+            directed_edges: List[Tuple[int, int]] = []
+            directed_probs: List[float] = []
+            for u, v in edges:
+                deg_v = max(1, nx_g.degree(v))
+                deg_u = max(1, nx_g.degree(u))
+                directed_edges.append((int(u), int(v)))
+                directed_probs.append(float(1.0 / deg_v))
+                if not nx_g.is_directed() and u != v:
+                    directed_edges.append((int(v), int(u)))
+                    directed_probs.append(float(1.0 / deg_u))
+            return _im_core.Graph.from_edge_list(n, directed_edges, directed_probs, is_directed=True)
+
+    if mode in ("uniform", "constant", "fixed"):
+        probs = [float(p)] * len(edges)
+        return _im_core.Graph.from_edge_list(n, edges, probs, is_directed=False)
+
+    raise ValueError(f"Unsupported probability mode: {probability_mode}")
+
 
 def load_graph(
     dataset_name: str,
@@ -43,82 +135,12 @@ def load_graph(
     --------
     (cpp_graph, metadata)
     """
-    name_clean = dataset_name.lower().replace(" ", "").replace("-", "").replace("_", "")
-
-    if "karate" in name_clean:
-        nx_g = nx.karate_club_graph()
-        # Ensure 0-indexed contiguous integer IDs
-        nx_g = nx.convert_node_labels_to_integers(nx_g)
-        meta = {
-            "name": "Karate Club",
-            "n": nx_g.number_of_nodes(),
-            "m": nx_g.number_of_edges(),
-            "source": "Zachary (1977)",
-        }
-    elif "dolphin" in name_clean:
-        # Standard 62 nodes, 159 edges Dolphins network
-        nx_g = _get_dolphins_graph()
-        nx_g = nx.convert_node_labels_to_integers(nx_g)
-        meta = {
-            "name": "Dolphins",
-            "n": nx_g.number_of_nodes(),
-            "m": nx_g.number_of_edges(),
-            "source": "Lusseau (2003)",
-        }
-    elif "facebook" in name_clean:
-        nx_g = _load_snap_edge_list("facebook", SNAP_URLS["facebook"])
-        meta = {
-            "name": "ego-Facebook",
-            "n": nx_g.number_of_nodes(),
-            "m": nx_g.number_of_edges(),
-            "source": "SNAP [8]",
-        }
-    elif "enron" in name_clean:
-        nx_g = _load_snap_edge_list("enron", SNAP_URLS["enron"])
-        meta = {
-            "name": "Email-Enron",
-            "n": nx_g.number_of_nodes(),
-            "m": nx_g.number_of_edges(),
-            "source": "SNAP [8]",
-        }
-    elif "nethept" in name_clean or "hept" in name_clean:
-        nx_g = _load_nethept_graph()
-        meta = {
-            "name": "NetHEPT",
-            "n": nx_g.number_of_nodes(),
-            "m": nx_g.number_of_edges(),
-            "source": "arXiv / SNAP [15]",
-        }
-    else:
-        # Default fallback to Karate Club
-        nx_g = nx.karate_club_graph()
-        nx_g = nx.convert_node_labels_to_integers(nx_g)
-        meta = {"name": dataset_name, "n": nx_g.number_of_nodes(), "m": nx_g.number_of_edges()}
-
-    n = nx_g.number_of_nodes()
-    is_wc = model.upper() == "WC" or probability_mode.lower() in ("wc", "weighted_cascade")
-
-    if is_wc:
-        # Weighted Cascade (WC): probability p(u -> v) = 1 / d_in(v)
-        directed_edges: List[Tuple[int, int]] = []
-        directed_probs: List[float] = []
-        for u, v in nx_g.edges():
-            deg_v = max(1, nx_g.in_degree(v) if nx_g.is_directed() else nx_g.degree(v))
-            deg_u = max(1, nx_g.in_degree(u) if nx_g.is_directed() else nx_g.degree(u))
-            directed_edges.append((int(u), int(v)))
-            directed_probs.append(float(1.0 / deg_v))
-            if not nx_g.is_directed() and u != v:
-                directed_edges.append((int(v), int(u)))
-                directed_probs.append(float(1.0 / deg_u))
-        cpp_graph = _im_core.Graph.from_edge_list(n, directed_edges, directed_probs, is_directed=True)
-        meta["model"] = "WC"
-    else:
-        edges = list(nx_g.edges())
-        probs = [float(p)] * len(edges)
-        # Convert to C++ CSR Graph (undirected)
-        cpp_graph = _im_core.Graph.from_edge_list(n, edges, probs, is_directed=False)
-        meta["model"] = "IC"
-
+    nx_g, meta = load_networkx_graph(dataset_name)
+    mode = "wc" if (model.upper() == "WC" or probability_mode.lower() in ("wc", "weighted", "weighted_cascade")) else "uniform"
+    cpp_graph = build_cpp_graph(nx_g, probability_mode=mode, p=p)
+    meta["model"] = "WC" if mode == "wc" else "IC"
+    meta["probability_model"] = meta["model"]
+    meta["p"] = None if mode == "wc" else float(p)
     return cpp_graph, meta
 
 
@@ -138,33 +160,29 @@ def _load_snap_edge_list(name: str, url: str) -> nx.Graph:
                 shutil.copyfileobj(f_in, f_out)
 
     g = nx.read_edgelist(txt_path, nodetype=int)
-    # Relabel to 0..n-1 contiguous
-    g = nx.convert_node_labels_to_integers(g)
-    return g
+    return nx.Graph(g)
 
 
 def _get_dolphins_graph() -> nx.Graph:
-    """Returns the standard 62-node, 159-edge Dolphins social network (Lusseau 2003)."""
     raw_path = DATA_DIR / "raw" / "dolphins.txt"
     if raw_path.exists():
         return nx.read_edgelist(raw_path, nodetype=int)
-    
+
     url = "https://networkdata.ics.uci.edu/data/dolphins/dolphins.gml"
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req) as resp:
-            content = resp.read().decode('utf-8', errors='ignore')
+            content = resp.read().decode("utf-8", errors="ignore")
             g = nx.parse_gml(content)
             g = nx.convert_node_labels_to_integers(g)
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
             nx.write_edgelist(g, raw_path, data=False)
             return g
     except Exception:
-        # Fallback to connected graph
         return nx.powerlaw_cluster_graph(62, 3, 0.25, seed=42)
 
 
 def _load_nethept_graph() -> nx.Graph:
-    """Returns the standard 15,233-node, 58,891-edge NetHEPT academic collaboration network."""
     raw_dir = DATA_DIR / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     txt_path = raw_dir / "nethept.txt"
@@ -173,7 +191,7 @@ def _load_nethept_graph() -> nx.Graph:
         url = "https://raw.githubusercontent.com/Wang-GY/IMP/master/NetHEPT.txt"
         print(f"[DataLoader] Downloading NetHEPT dataset from {url}...")
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req) as resp:
                 txt_path.write_bytes(resp.read())
         except Exception as e:
@@ -200,4 +218,3 @@ def _load_nethept_graph() -> nx.Graph:
     g.add_nodes_from(range(header_n))
     g.add_edges_from(edges)
     return g
-
