@@ -29,10 +29,16 @@ SNAP_URLS = {
     "enron": "https://snap.stanford.edu/data/email-Enron.txt.gz",
 }
 
-def load_graph(dataset_name: str, p: float = 0.1) -> Tuple[_im_core.Graph, dict]:
+def load_graph(
+    dataset_name: str,
+    p: float = 0.1,
+    model: str = "IC",
+    probability_mode: str = "uniform",
+) -> Tuple[_im_core.Graph, dict]:
     """
     Loads or downloads the specified graph dataset and converts it to a C++ CSR Graph.
-    
+    Supports both Independent Cascade (IC with uniform p) and Weighted Cascade (WC with p_uv = 1/d_in(v)).
+
     Returns:
     --------
     (cpp_graph, metadata)
@@ -90,11 +96,29 @@ def load_graph(dataset_name: str, p: float = 0.1) -> Tuple[_im_core.Graph, dict]
         meta = {"name": dataset_name, "n": nx_g.number_of_nodes(), "m": nx_g.number_of_edges()}
 
     n = nx_g.number_of_nodes()
-    edges = list(nx_g.edges())
-    probs = [float(p)] * len(edges)
+    is_wc = model.upper() == "WC" or probability_mode.lower() in ("wc", "weighted_cascade")
 
-    # Convert to C++ CSR Graph (undirected)
-    cpp_graph = _im_core.Graph.from_edge_list(n, edges, probs, is_directed=False)
+    if is_wc:
+        # Weighted Cascade (WC): probability p(u -> v) = 1 / d_in(v)
+        directed_edges: List[Tuple[int, int]] = []
+        directed_probs: List[float] = []
+        for u, v in nx_g.edges():
+            deg_v = max(1, nx_g.in_degree(v) if nx_g.is_directed() else nx_g.degree(v))
+            deg_u = max(1, nx_g.in_degree(u) if nx_g.is_directed() else nx_g.degree(u))
+            directed_edges.append((int(u), int(v)))
+            directed_probs.append(float(1.0 / deg_v))
+            if not nx_g.is_directed() and u != v:
+                directed_edges.append((int(v), int(u)))
+                directed_probs.append(float(1.0 / deg_u))
+        cpp_graph = _im_core.Graph.from_edge_list(n, directed_edges, directed_probs, is_directed=True)
+        meta["model"] = "WC"
+    else:
+        edges = list(nx_g.edges())
+        probs = [float(p)] * len(edges)
+        # Convert to C++ CSR Graph (undirected)
+        cpp_graph = _im_core.Graph.from_edge_list(n, edges, probs, is_directed=False)
+        meta["model"] = "IC"
+
     return cpp_graph, meta
 
 

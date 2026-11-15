@@ -16,4 +16,4 @@ class AblationStudy(ctk.CTkFrame):
             tree.insert("","end",values=(v,"Yes" if i else "No","Yes" if m else "No","Yes" if d else "No","Configured"))
         tree.pack(padx=20,pady=10)
         ctk.CTkLabel(self, text="Nguyên tắc: Các phiên bản chỉ khác ở thành phần được kiểm tra;\nđiều kiện còn lại phải nhất quán.").pack(pady=10)
-        ctk.CTkButton(self, text="Run Ablation Experiment", fg_color="#2563eb", command=lambda: messagebox.showinfo("Ablation","Started.")).pack(pady=10)
+        ctk.CTkButton(self, text="Run Ablation Experiment", fg_color="#2563eb", command=lambda: messagebox.showinfo("Ablation","Chức năng chạy ablation chưa được triển khai trong giao diện này.")).pack(pady=10)

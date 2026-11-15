@@ -64,12 +64,12 @@ def validate_ic_config(raw: Dict[str, Any]) -> Dict[str, Any]:
         ValueError: with a Vietnamese message suitable for the GUI.
     """
     model = str(raw.get("model", "IC")).strip().upper()
-    if model != "IC":
-        raise ValueError("Chỉ hỗ trợ mô hình Independent Cascade (IC).")
+    if model not in ("IC", "WC"):
+        raise ValueError("Chỉ hỗ trợ mô hình Independent Cascade (IC) hoặc Weighted Cascade (WC).")
 
-    mode = str(raw.get("probability_mode", "uniform")).strip().lower()
-    if mode != "uniform":
-        raise ValueError("Cơ chế gán xác suất hiện chỉ hỗ trợ Uniform (hằng số).")
+    mode = str(raw.get("probability_mode", "uniform" if model == "IC" else "wc")).strip().lower()
+    if mode not in ("uniform", "wc", "weighted_cascade"):
+        raise ValueError("Cơ chế gán xác suất hiện chỉ hỗ trợ Uniform (hằng số) hoặc Weighted Cascade (WC).")
 
     p_raw = str(raw.get("edge_probability", DEFAULT_IC_CONFIG["edge_probability"]))
     p_raw = p_raw.replace(",", ".").strip()

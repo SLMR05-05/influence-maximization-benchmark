@@ -4,27 +4,27 @@ Generates crisp antialiased outline & filled icons matching the design specifica
 Supports adaptive multi-theme (Light & Dark mode via CTkImage).
 """
 
+from __future__ import annotations
 import math
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageChops
 import customtkinter as ctk
 
 # Color palette
 BLUE_LIGHT    = "#1a73e8"
 CYAN_DARK     = "#00e5ff"
-GRAY_LIGHT    = "#3c4043"
+GRAY_LIGHT    = "#475569"
 SILVER_DARK   = "#cbd5e1"
 WHITE         = "#ffffff"
 
 def _canvas(size=128):
     return Image.new("RGBA", (size, size), (0, 0, 0, 0))
 
-def _downscale(img, target_size=26):
+def _downscale(img, target_size=24):
     return img.resize((target_size, target_size), Image.Resampling.LANCZOS)
 
 def draw_atom(size=128, color="#1a73e8", stroke_width=6):
     """Draws atomic orbital logo with nucleus and orbits."""
     im = _canvas(size)
-    d = ImageDraw.Draw(im)
     cx, cy = size / 2, size / 2
     
     # 3 orbital ellipses rotated at 0, 60, 120 deg
@@ -39,18 +39,32 @@ def draw_atom(size=128, color="#1a73e8", stroke_width=6):
     d = ImageDraw.Draw(im)
     r_nuc = 11
     d.ellipse([cx - r_nuc, cy - r_nuc, cx + r_nuc, cy + r_nuc], fill=color)
-    d.ellipse([20, 36, 32, 48], fill=color)
+    
+    # 3 orbital electrons symmetrically placed along orbits
+    electrons = [
+        (cx + 42, cy - 8),
+        (cx - 30, cy + 34),
+        (cx - 24, cy - 36),
+    ]
+    for ex, ey in electrons:
+        d.ellipse([ex - 4, ey - 4, ex + 4, ey + 4], fill=color)
     return im
 
-def draw_home(size=128, color=WHITE, stroke_width=7, filled=True):
-    """Draws home icon."""
+def draw_home(size=128, color=WHITE, stroke_width=7, filled=False):
+    """Draws clean home outline icon."""
     im = _canvas(size)
     d = ImageDraw.Draw(im)
     if filled:
-        d.polygon([(64, 22), (22, 60), (32, 60), (32, 106), (54, 106), (54, 76), (74, 76), (74, 106), (96, 106), (96, 60), (106, 60)], fill=color)
+        d.polygon([(64, 22), (24, 58), (34, 58), (34, 106), (54, 106), (54, 76), (74, 76), (74, 106), (94, 106), (94, 58), (104, 58)], fill=color)
     else:
-        d.line([(22, 60), (64, 22), (106, 60)], fill=color, width=stroke_width, joint="curve")
-        d.line([(32, 58), (32, 106), (54, 106), (54, 78), (74, 78), (74, 106), (96, 106), (96, 58)], fill=color, width=stroke_width, joint="curve")
+        # Roof
+        d.line([(22, 60), (64, 24), (106, 60)], fill=color, width=stroke_width, joint="curve")
+        # Chimney
+        d.line([(82, 36), (82, 48)], fill=color, width=stroke_width - 1)
+        # Walls
+        d.line([(34, 58), (34, 106), (94, 106), (94, 58)], fill=color, width=stroke_width, joint="curve")
+        # Door
+        d.line([(54, 106), (54, 76), (74, 76), (74, 106)], fill=color, width=stroke_width - 1)
     return im
 
 def draw_line_chart(size=128, color=GRAY_LIGHT, stroke_width=8):
@@ -73,25 +87,26 @@ def draw_bar_chart(size=128, color=GRAY_LIGHT, stroke_width=7):
     return im
 
 def draw_network(size=128, color=GRAY_LIGHT, stroke_width=6):
-    """Draws central hub node connected to 4-5 peripheral nodes."""
+    """Draws central hub node connected to 5 peripheral nodes without hardcoded background fills."""
     im = _canvas(size)
     d = ImageDraw.Draw(im)
     cx, cy = 64, 64
     r_center = 12
     nodes = [
-        (32, 34, 9),
-        (96, 32, 9),
-        (100, 88, 10),
-        (34, 92, 9),
-        (64, 104, 8),
+        (34, 34, 8),
+        (94, 32, 8),
+        (100, 88, 9),
+        (34, 92, 8),
+        (66, 102, 7),
     ]
+    # Edge lines
     for x, y, r in nodes:
         d.line([(cx, cy), (x, y)], fill=color, width=stroke_width)
-    d.ellipse([cx - r_center, cy - r_center, cx + r_center, cy + r_center], outline=color, width=stroke_width, fill=color if color == WHITE else "#ffffff")
-    if color != WHITE:
-        d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=color)
+    # Peripheral nodes
     for x, y, r in nodes:
-        d.ellipse([x - r, y - r, x + r, y + r], outline=color, width=stroke_width, fill=color if color == WHITE else "#ffffff")
+        d.ellipse([x - r, y - r, x + r, y + r], fill=color)
+    # Central hub
+    d.ellipse([cx - r_center, cy - r_center, cx + r_center, cy + r_center], fill=color)
     return im
 
 def draw_flask(size=128, color=GRAY_LIGHT, stroke_width=7):
@@ -117,21 +132,25 @@ def draw_document(size=128, color=GRAY_LIGHT, stroke_width=7):
     return im
 
 def draw_settings(size=128, color=GRAY_LIGHT, stroke_width=7):
-    """Draws settings gear/cog icon."""
+    """Draws settings gear/cog icon with connected teeth."""
     im = _canvas(size)
     d = ImageDraw.Draw(im)
     cx, cy = 64, 64
-    teeth_count = 6
+    teeth_count = 8
+    # 8 teeth connecting into the ring (from r=34 to r=54)
     for i in range(teeth_count):
         deg = i * (360 / teeth_count)
         rad = math.radians(deg)
-        x1 = cx + math.cos(rad) * 44
-        y1 = cy + math.sin(rad) * 44
+        x1 = cx + math.cos(rad) * 34
+        y1 = cy + math.sin(rad) * 34
         x2 = cx + math.cos(rad) * 54
         y2 = cy + math.sin(rad) * 54
-        d.line([(x1, y1), (x2, y2)], fill=color, width=12)
+        d.line([(x1, y1), (x2, y2)], fill=color, width=10)
+    
+    # Outer ring
     r_outer = 40
     d.ellipse([cx - r_outer, cy - r_outer, cx + r_outer, cy + r_outer], outline=color, width=stroke_width)
+    # Inner hole
     r_inner = 16
     d.ellipse([cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner], outline=color, width=stroke_width)
     return im
@@ -155,49 +174,103 @@ def draw_sun(size=128, color=GRAY_LIGHT, stroke_width=7):
     return im
 
 def draw_moon(size=128, color=GRAY_LIGHT, stroke_width=7):
-    """Draws crescent moon icon for dark mode."""
+    """Draws clean crescent moon icon for dark mode."""
     im = _canvas(size)
-    d = ImageDraw.Draw(im)
-    # Draw crescent using overlapping circles on alpha canvas
     moon_layer = _canvas(size)
     md = ImageDraw.Draw(moon_layer)
     md.ellipse([26, 24, 102, 100], fill=color)
-    # Cut out inner circle with transparent fill
+    
     cut_layer = _canvas(size)
     cd = ImageDraw.Draw(cut_layer)
     cd.ellipse([46, 18, 116, 94], fill=(0, 0, 0, 255))
-    # Subtract mask
+    
     mask = cut_layer.split()[-1]
-    # Invert mask and apply
     moon_alpha = moon_layer.split()[-1]
-    from PIL import ImageChops
     final_alpha = ImageChops.subtract(moon_alpha, mask)
     moon_layer.putalpha(final_alpha)
     im.alpha_composite(moon_layer)
     return im
 
 def draw_chip(size=128, color=GRAY_LIGHT, stroke_width=7):
-    """Draws CPU processor chip icon with pins and core die."""
+    """Draws CPU processor chip icon with sharp pins and core die."""
     im = _canvas(size)
     d = ImageDraw.Draw(im)
     # Chip body
-    d.rounded_rectangle([34, 34, 94, 94], radius=10, outline=color, width=stroke_width)
+    d.rounded_rectangle([32, 32, 96, 96], radius=10, outline=color, width=stroke_width)
     # Inner core die
     d.rounded_rectangle([48, 48, 80, 80], radius=4, outline=color, width=5)
-    # Pins
-    pin_len = 10
+    # Pins (3 on each of the 4 sides, length 14, width 6)
+    pin_len = 14
     for p in [46, 64, 82]:
-        # Top & Bottom pins
-        d.line([(p, 34 - pin_len), (p, 34)], fill=color, width=5)
-        d.line([(p, 94), (p, 94 + pin_len)], fill=color, width=5)
-        # Left & Right pins
-        d.line([(34 - pin_len, p), (34, p)], fill=color, width=5)
-        d.line([(94, p), (94 + pin_len, p)], fill=color, width=5)
+        d.line([(p, 32 - pin_len), (p, 32)], fill=color, width=6)
+        d.line([(p, 96), (p, 96 + pin_len)], fill=color, width=6)
+        d.line([(32 - pin_len, p), (32, p)], fill=color, width=6)
+        d.line([(96, p), (96 + pin_len, p)], fill=color, width=6)
     return im
 
+def draw_plus(size=128, color=GRAY_LIGHT, stroke_width=8):
+    """Draws plus / add icon."""
+    im = _canvas(size)
+    d = ImageDraw.Draw(im)
+    cx, cy = size / 2, size / 2
+    r = 34
+    d.line([(cx - r, cy), (cx + r, cy)], fill=color, width=stroke_width)
+    d.line([(cx, cy - r), (cx, cy + r)], fill=color, width=stroke_width)
+    return im
+
+def draw_trash(size=128, color=GRAY_LIGHT, stroke_width=7):
+    """Draws trash can / delete icon."""
+    im = _canvas(size)
+    d = ImageDraw.Draw(im)
+    # Lid
+    d.line([(34, 38), (94, 38)], fill=color, width=stroke_width)
+    d.line([(52, 38), (52, 28), (76, 28), (76, 38)], fill=color, width=stroke_width, joint="curve")
+    # Can body
+    d.line([(42, 42), (48, 104), (80, 104), (86, 42)], fill=color, width=stroke_width, joint="curve")
+    # Inner ribs
+    d.line([(56, 52), (56, 94)], fill=color, width=stroke_width - 2)
+    d.line([(72, 52), (72, 94)], fill=color, width=stroke_width - 2)
+    return im
+
+def draw_refresh(size=128, color=GRAY_LIGHT, stroke_width=7):
+    """Draws circular arrow reload icon."""
+    im = _canvas(size)
+    d = ImageDraw.Draw(im)
+    cx, cy = 64, 64
+    r = 38
+    d.arc([cx - r, cy - r, cx + r, cy + r], start=40, end=320, fill=color, width=stroke_width)
+    d.polygon([(94, 30), (108, 52), (84, 52)], fill=color)
+    return im
+
+def draw_play(size=128, color=GRAY_LIGHT, stroke_width=7):
+    """Draws right-pointing play triangle icon."""
+    im = _canvas(size)
+    d = ImageDraw.Draw(im)
+    d.polygon([(44, 32), (96, 64), (44, 96)], fill=color)
+    return im
+
+def draw_check(size=128, color=GRAY_LIGHT, stroke_width=8):
+    """Draws checkmark icon."""
+    im = _canvas(size)
+    d = ImageDraw.Draw(im)
+    d.line([(32, 64), (54, 88), (98, 40)], fill=color, width=stroke_width, joint="curve")
+    return im
+
+def draw_info(size=128, color=GRAY_LIGHT, stroke_width=7):
+    """Draws circular info icon."""
+    im = _canvas(size)
+    d = ImageDraw.Draw(im)
+    cx, cy = 64, 64
+    r = 44
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=color, width=stroke_width)
+    d.ellipse([cx - 4, cy - 24, cx + 4, cy - 16], fill=color)
+    d.line([(cx, cy - 6), (cx, cy + 22)], fill=color, width=stroke_width)
+    return im
+
+
 class IconSet:
-    """Provides CTkImage objects for active (blue/white) and inactive (light/dark adapt) states."""
-    def __init__(self, target_size=24):
+    """Provides CTkImage objects for active, inactive, and hover states with safe fallbacks."""
+    def __init__(self, target_size=20):
         self.target_size = target_size
         self._cache = {}
         self._init_all()
@@ -222,17 +295,18 @@ class IconSet:
             ("sun",        draw_sun),
             ("moon",       draw_moon),
             ("chip",       draw_chip),
+            ("plus",       draw_plus),
+            ("trash",      draw_trash),
+            ("refresh",    draw_refresh),
+            ("play",       draw_play),
+            ("check",      draw_check),
+            ("info",       draw_info),
         ]
 
         for name, fn in items:
-            # Inactive icon: dark gray in light mode, bright silver in dark mode
             img_inactive_light = _downscale(fn(color=GRAY_LIGHT), self.target_size)
             img_inactive_dark  = _downscale(fn(color=SILVER_DARK), self.target_size)
-
-            # Active icon: white on active blue background
             img_active = _downscale(fn(color=WHITE), self.target_size)
-
-            # Hover/Focus icon: black in light mode, white in dark mode
             img_hover_light = _downscale(fn(color="#0f172a"), self.target_size)
             img_hover_dark  = _downscale(fn(color=WHITE), self.target_size)
 
@@ -255,7 +329,39 @@ class IconSet:
             }
 
     def get(self, name: str, active: bool = False, state: str = None) -> ctk.CTkImage:
-        if state and state in self._cache.get(name, {}):
-            return self._cache[name][state]
+        """Retrieves CTkImage by name with intelligent alias mapping and guaranteed fallback."""
+        key = str(name).lower().strip()
+        alias_map = {
+            "chart": "bar_chart",
+            "results": "bar_chart",
+            "comparison": "bar_chart",
+            "stats": "bar_chart",
+            "statistics": "bar_chart",
+            "reports": "document",
+            "report": "document",
+            "datasets": "network",
+            "dataset": "network",
+            "graph": "network",
+            "runtime": "chip",
+            "system": "chip",
+            "cpu": "chip",
+            "experiments": "flask",
+            "experiment": "flask",
+            "lab": "flask",
+            "add": "plus",
+            "create": "plus",
+            "new": "plus",
+            "delete": "trash",
+            "remove": "trash",
+            "reload": "refresh",
+            "run": "play",
+            "start": "play",
+        }
+        key = alias_map.get(key, key)
+        if key not in self._cache:
+            key = "settings"
+
+        if state and state in self._cache.get(key, {}):
+            return self._cache[key][state]
         s = "active" if active else "inactive"
-        return self._cache[name][s]
+        return self._cache[key].get(s, self._cache[key].get("inactive", self.logo))

@@ -42,6 +42,7 @@ class CELF(BaseAlgorithm):
         # Step 1: Compute initial marginal gain for each node
         # Marginal gain of v w.r.t. empty set = σ({v})
         # Use batch_evaluate for parallel computation via OpenMP
+        print(f"      [CELF] Bước 1: Đánh giá độ lợi biên ban đầu cho {n} đỉnh (OpenMP Batch)...", flush=True)
         all_single_seeds = [[u] for u in range(n)]
         initial_spreads = problem.evaluator.batch_evaluate(all_single_seeds)
         total_evals += n
@@ -57,6 +58,7 @@ class CELF(BaseAlgorithm):
         convergence_history = []
         lazy_recomputes = 0
 
+        print(f"      [CELF] Bước 2: Bắt đầu chọn k={k} hạt giống với cơ chế Lazy Forward...", flush=True)
         for iteration in range(k):
             best_u = None
             best_gain = -1.0
@@ -88,6 +90,11 @@ class CELF(BaseAlgorithm):
             selected.append(best_u)
             selected_set.add(best_u)
             current_spread += best_gain
+
+            print(
+                f"      [CELF] Đã chọn hạt giống {iteration+1:2d}/{k}: Node {best_u:4d} (Độ lợi biên: +{best_gain:.2f} | Tích lũy: {current_spread:.2f})",
+                flush=True,
+            )
 
             convergence_history.append({
                 "iteration": iteration + 1,

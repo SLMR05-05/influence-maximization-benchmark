@@ -12,6 +12,7 @@ psutil>=5.9.0
 # GUI (modern — CustomTkinter)
 customtkinter>=5.2.0
 ttkbootstrap>=1.10.0
+Pillow>=10.0.0
 
 # Python-C++ binding
 pybind11>=2.12.0

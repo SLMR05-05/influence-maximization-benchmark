@@ -8,12 +8,9 @@ if str(PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import customtkinter as ctk
-import tkinter as tk
-from tkinter import messagebox
 
 from im_research.gui.core.theme import *
-from im_research.gui.core.tooltip import Tooltip
-from im_research.gui.core.ui_helpers import section_header, metric_card, create_empty_state
+from im_research.gui.core.ui_helpers import section_header, create_empty_state
 
 
 class PageResults(ctk.CTkScrollableFrame):
@@ -23,25 +20,21 @@ class PageResults(ctk.CTkScrollableFrame):
         self._build()
 
     def _build(self):
-        section_header(
-            self,
-            "Kết quả lan truyền (Influence Spread Results)",
-            "Đánh giá độ bao phủ trung bình qua Monte Carlo Simulation độc lập (R = 10,000)"
-        )
-
-        # Check for real experiment results from runs/latest_results.json
+        # Load real experiment results from runs/latest_results.json
         results_file = PROJECT_ROOT / "runs" / "latest_results.json"
         display_rows = []
-        ds_name = "Karate Club"
-        k_val = "10"
+        ds_name = ""
+        k_val = ""
+        mc_val = None
 
         if results_file.exists():
             try:
                 import json
                 with open(results_file, "r", encoding="utf-8") as f:
                     res_data = json.load(f)
-                ds_name = res_data.get("dataset", "Karate Club")
-                k_val = str(res_data.get("k", "10"))
+                ds_name = res_data.get("dataset", "—")
+                k_val = str(res_data.get("k", "—"))
+                mc_val = res_data.get("mc_val")
                 for row in res_data.get("summary", []):
                     code = row.get("code", "").lower()
                     col = RED if "iga" in code else (BLUE if "celf" in code else GREEN)
@@ -57,6 +50,16 @@ class PageResults(ctk.CTkScrollableFrame):
                     ))
             except Exception:
                 display_rows = []
+
+        r_text = ""
+        if isinstance(mc_val, (int, float)) and mc_val > 0:
+            r_text = f" (R = {int(mc_val):,})".replace(",", ".")
+
+        section_header(
+            self,
+            "Kết quả lan truyền (Influence Spread Results)",
+            "Đánh giá độ bao phủ trung bình qua Monte Carlo Simulation độc lập" + r_text
+        )
 
         card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,
                             border_width=1, border_color=BORDER_COLOR)

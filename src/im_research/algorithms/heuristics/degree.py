@@ -30,12 +30,14 @@ class DegreeCentrality(BaseAlgorithm):
         k = problem.k
 
         # Compute out-degree for each node directly from CSR row_ptr
+        print(f"      [Degree] Đang xếp hạng bậc các đỉnh và chọn top {k} đỉnh cao nhất...", flush=True)
         row_ptr = graph.row_ptr()
         degrees = [(row_ptr[u + 1] - row_ptr[u], u) for u in range(n)]
         degrees.sort(reverse=True)
 
         seed_set = sorted([u for _, u in degrees[:k]])
         solution = Solution(seed_set)
+        print(f"      [Degree] Hoàn tất! Top {k} hạt giống: {seed_set[:min(k, 8)]}...", flush=True)
 
         t_search_end = time.perf_counter()
 

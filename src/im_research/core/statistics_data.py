@@ -1,418 +1,677 @@
 #!/usr/bin/env python3
 """
 Statistics & Benchmark Data Engine for IM-Benchmark-Lab.
-Provides comprehensive benchmark metrics, distributions, convergence histories,
-runtime stage breakdowns, and seed set structural comparisons across all 5 benchmark graphs.
+
+All values shown by the Statistics page are read from real experiment
+outputs stored under ``runs/EXP_*/summary.json`` (or ``runs/latest_results.json``
+when no per-experiment directory exists). Nothing is generated, simulated or
+hardcoded: when no experiment data is available the getters return empty
+results and the GUI renders an empty state instead.
 """
 
 from __future__ import annotations
-import os
+
 import json
 import math
+import statistics
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 RUNS_DIR = PROJECT_ROOT / "runs"
 
-DATASET_SPECS = {
-    "Karate Club":   {"n": 34,    "m": 78,      "avg_k": 4.59,  "type": "Social Network"},
-    "Dolphins":      {"n": 62,    "m": 159,     "avg_k": 5.13,  "type": "Animal Social"},
-    "ego-Facebook":  {"n": 4039,  "m": 88234,   "avg_k": 43.69, "type": "Online Social"},
-    "NetHEPT":       {"n": 15233, "m": 58891,   "avg_k": 7.73,  "type": "Co-authorship"},
-    "Email-Enron":   {"n": 36692, "m": 183831,  "avg_k": 10.02, "type": "Communication"},
+# Presentation only (algorithm identity is derived from the run files).
+ALGORITHM_COLORS = {
+    "iga": "#ef4444",
+    "ga": "#3b82f6",
+    "celf": "#10b981",
+    "degree": "#8b5cf6",
+    "degree_discount": "#8b5cf6",
+    "pagerank": "#f59e0b",
 }
-
-ALGORITHMS = [
-    {"code": "iga",    "name": "IGA (Improved GA)",    "color": "#ef4444", "is_meta": True,  "is_proposed": True},
-    {"code": "ga",     "name": "GA (Baseline)",        "color": "#3b82f6", "is_meta": True,  "is_proposed": False},
-    {"code": "celf",   "name": "CELF (Lazy Greedy)",   "color": "#10b981", "is_meta": False, "is_proposed": False},
-    {"code": "degree", "name": "Degree Discount",      "color": "#8b5cf6", "is_meta": False, "is_proposed": False},
-    {"code": "pso",    "name": "PSO (Particle Swarm)", "color": "#06b6d4", "is_meta": True,  "is_proposed": False},
-    {"code": "aco",    "name": "ACO (Ant Colony)",     "color": "#f59e0b", "is_meta": True,  "is_proposed": False},
-]
+FALLBACK_COLORS = ["#06b6d4", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"]
 
 
-def _get_baseline_factors(dataset_name: str) -> Tuple[float, float]:
-    """Returns (scale_factor_for_spread, scale_factor_for_time) based on graph scale."""
-    spec = DATASET_SPECS.get(dataset_name, DATASET_SPECS["Karate Club"])
-    n = spec["n"]
-    if n <= 50:
-        return 1.0, 0.05
-    elif n <= 100:
-        return 1.8, 0.12
-    elif n <= 5000:
-        return 45.0, 3.2
-    elif n <= 20000:
-        return 95.0, 18.5
-    else:
-        return 180.0, 42.0
+# ─────────────────────────────────────────────────────────────────────────────
+#  Loading real experiment records
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CACHE: Dict[str, Any] = {"stamp": None, "records": []}
 
 
-def get_performance_summary(
-    dataset_name: str = "Karate Club",
-    k: int = 10,
-    model: str = "IC"
-) -> List[Dict[str, Any]]:
-    """
-    Returns Tab A Performance Overview table across all algorithms.
-    Includes Best, Mean, Median, Std, Confidence Interval (95%), Preprocessing, Search, Evaluation, Total Time.
-    """
-    spread_scale, time_scale = _get_baseline_factors(dataset_name)
-    model_mult = 1.0 if model == "IC" else 0.88
+def _read_record(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("summary"), list):
+        return None
+    data["_path"] = str(path)
+    data["_mtime"] = path.stat().st_mtime
+    return data
 
-    base_k_spread = (k ** 0.82) * 2.8 * spread_scale * model_mult
 
-    # Relative quality factors (IGA > CELF approx >= PSO > GA > ACO > Degree)
-    # Degree is fast heuristic, CELF is high quality but very slow, IGA is highest metaheuristic
-    algo_params = {
-        "iga":    {"q": 1.08, "std": 0.015, "t_search": 0.55, "t_eval": 0.40, "t_prep": 0.05},
-        "ga":     {"q": 0.94, "std": 0.038, "t_search": 0.65, "t_eval": 0.50, "t_prep": 0.05},
-        "celf":   {"q": 1.05, "std": 0.000, "t_search": 0.05, "t_eval": 4.50, "t_prep": 0.08},
-        "degree": {"q": 0.88, "std": 0.000, "t_search": 0.02, "t_eval": 0.01, "t_prep": 0.04},
-        "pso":    {"q": 0.98, "std": 0.028, "t_search": 0.70, "t_eval": 0.60, "t_prep": 0.05},
-        "aco":    {"q": 0.92, "std": 0.035, "t_search": 0.85, "t_eval": 0.65, "t_prep": 0.05},
+def _load_experiments() -> List[Dict[str, Any]]:
+    """Loads every real experiment record, newest last. Cached by file mtimes."""
+    run_files = sorted(RUNS_DIR.glob("EXP_*/summary.json"))
+    latest_file = RUNS_DIR / "latest_results.json"
+    files = list(run_files)
+    if not files and latest_file.exists():
+        files = [latest_file]
+
+    stamp = tuple((str(p), p.stat().st_mtime_ns) for p in files if p.exists())
+    if _CACHE["stamp"] == stamp:
+        return _CACHE["records"]
+
+    records = []
+    for path in files:
+        if not path.exists():
+            continue
+        record = _read_record(path)
+        if record is not None:
+            records.append(record)
+
+    records.sort(key=lambda r: (str(r.get("timestamp") or ""), float(r.get("_mtime") or 0)))
+    _CACHE["stamp"] = stamp
+    _CACHE["records"] = records
+    return records
+
+
+def _matches(record: Dict[str, Any], dataset: str, model: str, k: Optional[int]) -> bool:
+    if str(record.get("dataset", "")) != dataset:
+        return False
+    if model and str(record.get("model") or "IC") != model:
+        return False
+    if k is not None:
+        try:
+            if int(record.get("k", 0)) != int(k):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _matching_experiments(dataset: Optional[str], model: str = "IC",
+                          k: Optional[int] = None) -> List[Dict[str, Any]]:
+    return [
+        r for r in _load_experiments()
+        if (dataset is None or _matches(r, dataset, model, k))
+    ]
+
+
+def _latest_experiment(dataset: Optional[str], model: str = "IC",
+                       k: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    matches = _matching_experiments(dataset, model, k)
+    return matches[-1] if matches else None
+
+
+def _format_seconds(value: float) -> str:
+    if value >= 1.0:
+        return f"{value:.3f}s"
+    if value >= 0.001:
+        return f"{value:.4f}s"
+    return f"{value * 1000:.3f}ms"
+
+
+def _color_for(code: str, index: int = 0) -> str:
+    if code in ALGORITHM_COLORS:
+        return ALGORITHM_COLORS[code]
+    return FALLBACK_COLORS[index % len(FALLBACK_COLORS)]
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _mean(values: Sequence[float]) -> float:
+    return float(statistics.fmean(values)) if values else 0.0
+
+
+def _pstd(values: Sequence[float]) -> float:
+    return float(statistics.pstdev(values)) if len(values) > 1 else 0.0
+
+
+def _detail_for(record: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:
+    details = record.get("details") or {}
+    name = row.get("algorithm")
+    detail = details.get(name)
+    if isinstance(detail, dict):
+        return detail
+    # Fall back to matching by algorithm code.
+    for value in details.values():
+        if isinstance(value, dict) and value.get("code") == row.get("code"):
+            return value
+    return {}
+
+
+def _spreads_of(detail: Dict[str, Any]) -> List[float]:
+    spreads = detail.get("spreads") or []
+    if not spreads:
+        runs_detail = detail.get("runs_detail") or []
+        spreads = [run.get("spread") for run in runs_detail if isinstance(run, dict)]
+    return [_as_float(value) for value in spreads if value is not None]
+
+
+def _times_of(detail: Dict[str, Any]) -> List[float]:
+    times = detail.get("times") or []
+    if not times:
+        runs_detail = detail.get("runs_detail") or []
+        times = [run.get("wall_time") for run in runs_detail if isinstance(run, dict)]
+    return [_as_float(value) for value in times if value is not None]
+
+
+def _seed_sets_of(detail: Dict[str, Any]) -> List[List[int]]:
+    seeds = detail.get("seeds") or []
+    if not seeds:
+        runs_detail = detail.get("runs_detail") or []
+        seeds = [run.get("seed_set") for run in runs_detail if isinstance(run, dict)]
+    result = []
+    for seed_set in seeds:
+        if isinstance(seed_set, (list, tuple, set)):
+            result.append(sorted(int(node) for node in seed_set))
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Available filters (derived from real runs)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_available_datasets(model: str = "IC") -> List[str]:
+    return sorted({str(r.get("dataset")) for r in _load_experiments()
+                   if str(r.get("model", "IC")) == model and r.get("dataset")})
+
+
+def get_available_k_values(dataset: str, model: str = "IC") -> List[int]:
+    values = set()
+    for record in _matching_experiments(dataset, model):
+        try:
+            values.add(int(record.get("k")))
+        except (TypeError, ValueError):
+            continue
+    return sorted(values)
+
+
+def get_available_models(dataset: Optional[str] = None) -> List[str]:
+    return sorted({str(r.get("model", "IC")) for r in _load_experiments()
+                   if dataset is None or str(r.get("dataset")) == dataset})
+
+
+def get_latest_run_selection(model: str = "IC") -> Optional[Dict[str, Any]]:
+    """Returns the filters of the most recent real run (used for initial UI state)."""
+    records = [r for r in _load_experiments() if str(r.get("model", "IC")) == model]
+    if not records:
+        return None
+    record = records[-1]
+    try:
+        k_value = int(record.get("k"))
+    except (TypeError, ValueError):
+        k_value = None
+    return {
+        "dataset": record.get("dataset"),
+        "k": k_value,
+        "model": record.get("model", "IC"),
     }
 
-    rows = []
-    for algo in ALGORITHMS:
-        code = algo["code"]
-        p = algo_params[code]
-        mean_sp = round(base_k_spread * p["q"], 2)
-        std_sp = round(mean_sp * p["std"], 2)
-        best_sp = round(mean_sp + (std_sp * 1.8 if std_sp > 0 else 0), 2)
-        median_sp = round(mean_sp - (std_sp * 0.2 if std_sp > 0 else 0), 2)
-        ci_95 = round(1.96 * (std_sp / math.sqrt(30)), 2)
 
-        t_prep = round(max(0.005, p["t_prep"] * time_scale), 3)
-        t_search = round(max(0.008, p["t_search"] * time_scale), 3)
-        t_eval = round(max(0.008, p["t_eval"] * time_scale), 3)
-        t_total = round(t_prep + t_search + t_eval, 3)
+# ─────────────────────────────────────────────────────────────────────────────
+#  Tab A — Performance overview
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_performance_summary(
+    dataset_name: str = "",
+    k: Optional[int] = None,
+    model: str = "IC",
+) -> List[Dict[str, Any]]:
+    """Returns per-algorithm metrics computed from the latest matching run."""
+    record = _latest_experiment(dataset_name, model, k)
+    if record is None:
+        return []
+
+    rows = []
+    for index, row in enumerate(record.get("summary") or []):
+        code = str(row.get("code") or "").lower()
+        detail = _detail_for(record, row)
+        spreads = _spreads_of(detail)
+        times = _times_of(detail)
+
+        mean = _mean(spreads) if spreads else _as_float(row.get("mean_spread"))
+        std = _pstd(spreads) if spreads else _as_float(row.get("std_spread"))
+        median = float(statistics.median(spreads)) if spreads else mean
+        best = max(spreads) if spreads else _as_float(row.get("best_spread"), mean)
+        run_count = len(spreads) or int(_as_float(record.get("runs"), 1) or 1)
+        total_time = _mean(times) if times else _as_float(row.get("mean_time"))
+        ci_95 = 1.96 * std / math.sqrt(run_count) if run_count > 1 else 0.0
 
         rows.append({
             "code": code,
-            "algorithm": algo["name"],
-            "color": algo["color"],
-            "is_proposed": algo["is_proposed"],
-            "best_spread": best_sp,
-            "mean_spread": mean_sp,
-            "median_spread": median_sp,
-            "std_spread": std_sp,
-            "ci_95": f"± {ci_95}",
-            "runs": 30 if algo["is_meta"] else 1,
-            "time_prep": f"{t_prep:.3f}s",
-            "time_search": f"{t_search:.3f}s",
-            "time_eval": f"{t_eval:.3f}s",
-            "time_total": f"{t_total:.3f}s",
-            "time_total_num": t_total,
+            "algorithm": row.get("algorithm") or code,
+            "color": _color_for(code, index),
+            "best_spread": round(best, 2),
+            "mean_spread": round(mean, 2),
+            "median_spread": round(median, 2),
+            "std_spread": round(std, 2),
+            "ci_95": f"± {ci_95:.2f}" if run_count > 1 else "—",
+            "runs": run_count,
+            "time_total_num": total_time,
+            "time_total": _format_seconds(total_time),
+            # The runner does not record a stage breakdown.
+            "time_prep": "—",
+            "time_search": "—",
+            "time_eval": "—",
         })
 
-    # Sort by mean spread descending to assign rank
-    rows.sort(key=lambda x: x["mean_spread"], reverse=True)
-    for idx, r in enumerate(rows, 1):
-        r["rank"] = idx
-
+    rows.sort(key=lambda r: r["mean_spread"], reverse=True)
+    for index, row in enumerate(rows, start=1):
+        row["rank"] = index
     return rows
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  Tab B — Spread vs k
+# ─────────────────────────────────────────────────────────────────────────────
+
 def get_spread_vs_k_data(
-    dataset_name: str = "Karate Club",
-    model: str = "IC"
+    dataset_name: str = "",
+    model: str = "IC",
+    k: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """
-    Returns data for Tab B Influence Spread Comparison across k = [5, 10, 15, 20, 25, 30, 50, 100].
-    Includes line curves with error bars and 30-run distributions for box plots.
-    """
-    k_list = [5, 10, 15, 20, 25, 30, 50, 100]
-    spread_scale, _ = _get_baseline_factors(dataset_name)
-    model_mult = 1.0 if model == "IC" else 0.88
+    """Builds spread curves from every real experiment of the selected dataset."""
+    experiments = _matching_experiments(dataset_name, model)
+    empty = {"dataset": dataset_name, "k_list": [], "curves": {}, "box_data": {}, "box_k": k}
+    if not experiments:
+        return empty
 
-    algo_curves = {}
-    algo_box_data = {}  # 30 runs at k=20 or k=30 for box plot
+    by_k: Dict[int, Dict[str, Dict[str, List[float]]]] = {}
+    meta: Dict[str, Dict[str, Any]] = {}
 
-    for algo in ALGORITHMS:
-        code = algo["code"]
-        means = []
-        errors = []
-        medians = []
+    for record in experiments:
+        try:
+            record_k = int(record.get("k"))
+        except (TypeError, ValueError):
+            continue
+        for index, row in enumerate(record.get("summary") or []):
+            code = str(row.get("code") or "").lower()
+            detail = _detail_for(record, row)
+            spreads = _spreads_of(detail)
+            mean = _mean(spreads) if spreads else _as_float(row.get("mean_spread"))
+            median = float(statistics.median(spreads)) if spreads else mean
 
-        # Get quality factor
-        summary_k10 = get_performance_summary(dataset_name, k=10, model=model)
-        algo_row = next(r for r in summary_k10 if r["code"] == code)
-        q_ratio = algo_row["mean_spread"] / (10 ** 0.82 * 2.8 * spread_scale * model_mult)
+            slot = by_k.setdefault(record_k, {}).setdefault(code, {"means": [], "medians": []})
+            slot["means"].append(mean)
+            slot["medians"].append(median)
+            meta.setdefault(code, {
+                "name": row.get("algorithm") or code,
+                "color": _color_for(code, index),
+            })
 
-        for k in k_list:
-            base = (k ** 0.82) * 2.8 * spread_scale * model_mult * q_ratio
-            std = base * (0.018 if code == "iga" else (0.035 if algo["is_meta"] else 0.0))
-            means.append(round(base, 2))
-            errors.append(round(std, 2))
-            medians.append(round(base - (std * 0.15), 2))
+    if not by_k:
+        return empty
 
-        algo_curves[code] = {
-            "name": algo["name"],
-            "color": algo["color"],
-            "means": means,
-            "errors": errors,
-            "medians": medians,
-        }
+    k_list = sorted(by_k)
+    curves: Dict[str, Dict[str, Any]] = {}
+    for code, info in meta.items():
+        curve_k, means, medians, errors = [], [], [], []
+        for value_k in k_list:
+            means_at_k = by_k.get(value_k, {}).get(code, {}).get("means", [])
+            medians_at_k = by_k.get(value_k, {}).get(code, {}).get("medians", [])
+            if not means_at_k:
+                continue
+            curve_k.append(value_k)
+            means.append(round(_mean(means_at_k), 2))
+            medians.append(round(_mean(medians_at_k), 2))
+            errors.append(round(_pstd(means_at_k), 2))
+        if means:
+            curves[code] = {
+                "name": info["name"],
+                "color": info["color"],
+                "k_list": curve_k,
+                "means": means,
+                "medians": medians,
+                "errors": errors,
+            }
 
-        # Generate realistic 30 runs at k=20 for Box Plot
-        base_k20 = means[3]  # k=20
-        std_k20 = errors[3]
-        if std_k20 > 0:
-            import numpy as np
-            rng = np.random.default_rng(seed=hash(code) % 100000)
-            runs_samples = rng.normal(loc=base_k20, scale=std_k20, size=30).tolist()
-        else:
-            runs_samples = [base_k20] * 30
-
-        algo_box_data[code] = runs_samples
+    box_k = k if k in by_k else k_list[-1]
+    box_record = _latest_experiment(dataset_name, model, box_k)
+    box_data: Dict[str, List[float]] = {}
+    if box_record is not None:
+        for row in box_record.get("summary") or []:
+            code = str(row.get("code") or "").lower()
+            spreads = _spreads_of(_detail_for(box_record, row))
+            if spreads:
+                box_data[code] = spreads
 
     return {
-        "k_list": k_list,
         "dataset": dataset_name,
-        "curves": algo_curves,
-        "box_data": algo_box_data,
+        "k_list": k_list,
+        "curves": curves,
+        "box_data": box_data,
+        "box_k": box_k,
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  Tab C — Runtime analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
 def get_runtime_analysis_data(
-    dataset_name: str = "Karate Club"
+    dataset_name: str = "",
+    model: str = "IC",
+    k: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """
-    Returns Tab C Runtime Analysis data:
-    - Breakdown of 4 runtime types (Preprocessing, Search, Evaluation, Total)
-    - Box plot runtime distribution over 30 runs
-    - Runtime vs Seed budget k
-    - Runtime vs Graph size
-    """
-    summary = get_performance_summary(dataset_name, k=10)
+    """Returns measured execution times (total only; no fabricated stage split)."""
+    experiments = _matching_experiments(dataset_name, model)
+    empty = {"dataset": dataset_name, "stages": [], "k_vals": [], "runtime_vs_k": {}}
+    if not experiments:
+        return empty
+
+    record = _latest_experiment(dataset_name, model, k)
+    if record is None:
+        return empty
     stages = []
-    box_runtimes = {}
-
-    for row in summary:
-        code = row["code"]
-        t_tot = row["time_total_num"]
-        # Realistic 30 runs timing variation (e.g. ±5%)
-        import numpy as np
-        rng = np.random.default_rng(seed=hash(code) % 9999)
-        t_samples = rng.normal(loc=t_tot, scale=t_tot * 0.04, size=30).tolist()
-        box_runtimes[code] = [max(0.001, t) for t in t_samples]
-
+    for index, row in enumerate(record.get("summary") or []):
+        code = str(row.get("code") or "").lower()
+        detail = _detail_for(record, row)
+        times = _times_of(detail)
+        total = _mean(times) if times else _as_float(row.get("mean_time"))
         stages.append({
             "code": code,
-            "algorithm": row["algorithm"],
-            "color": row["color"],
-            "prep": float(row["time_prep"].replace("s", "")),
-            "search": float(row["time_search"].replace("s", "")),
-            "eval": float(row["time_eval"].replace("s", "")),
-            "total": t_tot,
+            "algorithm": row.get("algorithm") or code,
+            "color": _color_for(code, index),
+            "prep": None,
+            "search": None,
+            "eval": None,
+            "total": total,
+            "runs": len(times) or int(_as_float(record.get("runs"), 1) or 1),
         })
 
-    # Runtime vs k list
-    k_vals = [5, 10, 20, 30, 50, 100]
+    by_k: Dict[int, Dict[str, List[float]]] = {}
+    meta: Dict[str, str] = {}
+    for exp in experiments:
+        try:
+            exp_k = int(exp.get("k"))
+        except (TypeError, ValueError):
+            continue
+        for row in exp.get("summary") or []:
+            code = str(row.get("code") or "").lower()
+            times = _times_of(_detail_for(exp, row))
+            total = _mean(times) if times else _as_float(row.get("mean_time"))
+            by_k.setdefault(exp_k, {}).setdefault(code, []).append(total)
+            meta.setdefault(code, row.get("algorithm") or code)
+
+    k_vals = sorted(by_k)
     runtime_vs_k = {}
-    for row in summary:
-        code = row["code"]
-        base_t = row["time_total_num"]
-        # Complexity scaling: Greedy grows linearly or n*k, GA/IGA grows sublinearly with k
-        if code == "celf":
-            k_times = [round(base_t * (kv / 10.0) ** 1.15, 3) for kv in k_vals]
-        elif code == "degree":
-            k_times = [round(base_t * (kv / 10.0) ** 0.5, 3) for kv in k_vals]
-        else:
-            k_times = [round(base_t * (kv / 10.0) ** 0.35, 3) for kv in k_vals]
-        runtime_vs_k[code] = k_times
+    for code in meta:
+        points = [(value_k, _mean(values)) for value_k, values in
+                  ((value_k, by_k[value_k].get(code, [])) for value_k in k_vals) if values]
+        runtime_vs_k[code] = {
+            "k_list": [point[0] for point in points],
+            "times": [round(point[1], 4) for point in points],
+        }
 
     return {
         "dataset": dataset_name,
         "stages": stages,
-        "box_runtimes": box_runtimes,
         "k_vals": k_vals,
         "runtime_vs_k": runtime_vs_k,
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  Tab D — Convergence analysis (only for runs that recorded a history)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _aggregate_history(runs: Sequence[Sequence[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+    histories = [h for h in runs if h]
+    if not histories:
+        return None
+    length = min(len(h) for h in histories)
+    if length == 0:
+        return None
+
+    generations, evaluations, best, avg = [], [], [], []
+    for i in range(length):
+        entries = [h[i] for h in histories]
+        generations.append(int(_as_float(
+            entries[0].get("generation", entries[0].get("iteration")), i)))
+        evaluations.append(int(_as_float(
+            entries[0].get("evaluations", entries[0].get("evaluations_so_far")), 0)))
+        best.append(round(_mean([
+            _as_float(e.get("best_fitness", e.get("cumulative_spread"))) for e in entries
+        ]), 4))
+        avg.append(round(_mean([
+            _as_float(e.get("mean_fitness", e.get("cumulative_spread"))) for e in entries
+        ]), 4))
+
+    return {"generations": generations, "evaluations": evaluations, "best": best, "avg": avg}
+
+
 def get_convergence_data(
-    dataset_name: str = "Karate Club",
-    k: int = 10
-) -> Dict[str, Any]:
-    """
-    Returns Tab D Convergence Analysis data across 100 generations.
-    Tracks Best Fitness Curve, Average Population Fitness Curve,
-    Evaluations per generation, and Elapsed Time.
-    """
-    generations = list(range(1, 101))
-    summary = get_performance_summary(dataset_name, k=k)
+    dataset_name: str = "",
+    k: Optional[int] = None,
+    model: str = "IC",
+) -> Optional[Dict[str, Any]]:
+    """Returns real convergence histories, or None when the run has none."""
+    record = _latest_experiment(dataset_name, model, k)
+    if record is None:
+        return None
 
-    iga_final = next(r["mean_spread"] for r in summary if r["code"] == "iga")
-    ga_final  = next(r["mean_spread"] for r in summary if r["code"] == "ga")
-    pso_final = next(r["mean_spread"] for r in summary if r["code"] == "pso")
+    details = record.get("details") or {}
+    series: Dict[str, Dict[str, Any]] = {}
+    for index, row in enumerate(record.get("summary") or []):
+        code = str(row.get("code") or "").lower()
+        detail = _detail_for(record, row)
+        runs = [run.get("convergence") or [] for run in detail.get("runs_detail") or []
+                if isinstance(run, dict)]
+        aggregated = _aggregate_history(runs)
+        if aggregated is None:
+            continue
 
-    # IGA fast convergence curve (asymptotic growth towards iga_final)
-    iga_best = [round(iga_final * (1.0 - 0.55 * math.exp(-0.065 * g)), 2) for g in generations]
-    iga_avg  = [round(v * (0.82 + 0.14 * (g / 100.0)), 2) for g, v in zip(generations, iga_best)]
+        final = round(_as_float(row.get("mean_spread")), 2)
+        best_curve = aggregated["best"]
+        peak = max(best_curve) if best_curve else final
 
-    # GA standard baseline (slower start, plateaus earlier at lower fitness due to premature convergence)
-    ga_best  = [round(ga_final * (1.0 - 0.62 * math.exp(-0.040 * g)), 2) for g in generations]
-    ga_avg   = [round(v * (0.75 + 0.16 * (g / 100.0)), 2) for g, v in zip(generations, ga_best)]
+        def first_generation(ratio: float) -> Optional[int]:
+            if peak <= 0:
+                return None
+            threshold = ratio * peak
+            for generation, value in zip(aggregated["generations"], best_curve):
+                if value >= threshold:
+                    return generation
+            return None
 
-    # PSO curve
-    pso_best = [round(pso_final * (1.0 - 0.58 * math.exp(-0.048 * g)), 2) for g in generations]
-
-    # Fitness evaluations: population 50 * generations
-    evals = [g * 50 for g in generations]
-
-    # Elapsed time (assuming ~10s total for 100 gen in IGA)
-    t_scale = next(r["time_total_num"] for r in summary if r["code"] == "iga")
-    time_iga = [round((g / 100.0) * t_scale, 2) for g in generations]
-    t_scale_ga = next(r["time_total_num"] for r in summary if r["code"] == "ga")
-    time_ga = [round((g / 100.0) * t_scale_ga, 2) for g in generations]
-
-    return {
-        "generations": generations,
-        "evaluations": evals,
-        "iga": {"best": iga_best, "avg": iga_avg, "time": time_iga, "final": iga_final},
-        "ga":  {"best": ga_best,  "avg": ga_avg,  "time": time_ga,  "final": ga_final},
-        "pso": {"best": pso_best, "time": time_iga, "final": pso_final},
-        "metrics": {
-            "iga_gen_90": 24,
-            "iga_gen_98": 58,
-            "ga_gen_90": 42,
-            "ga_gen_98": 86,
-            "iga_total_evals": 5000,
-            "ga_total_evals": 5000,
+        series[code] = {
+            **aggregated,
+            "name": row.get("algorithm") or code,
+            "color": _color_for(code, index),
+            "final": final,
+            "gen_90": first_generation(0.90),
+            "gen_98": first_generation(0.98),
+            "total_evaluations": int(_as_float(
+                (detail.get("runs_detail") or [{}])[0].get("evaluations"), 0)),
         }
-    }
+
+    if not series:
+        return None
+    return {"dataset": dataset_name, "k": record.get("k"), "series": series}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Tab E — Seed set analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _jaccard(a: Sequence[int], b: Sequence[int]) -> float:
+    set_a, set_b = set(a), set(b)
+    union = set_a | set_b
+    return len(set_a & set_b) / len(union) if union else 0.0
 
 
 def get_seed_set_analysis_data(
-    dataset_name: str = "Karate Club",
-    k: int = 10
-) -> Dict[str, Any]:
-    """
-    Returns Tab E Seed Set Analysis data:
-    - Seed node IDs chosen by IGA vs Baseline GA vs CELF
-    - Node degree, in/out-degree, community ID, centrality
-    - Jaccard Similarity J(A, B) = |A ∩ B| / |A ∪ B|
-    - Overlapping vs Unique nodes breakdown
-    """
-    spec = DATASET_SPECS.get(dataset_name, DATASET_SPECS["Karate Club"])
-    n = spec["n"]
+    dataset_name: str = "",
+    k: Optional[int] = None,
+    model: str = "IC",
+) -> Optional[Dict[str, Any]]:
+    """Compares the seed sets actually returned by two algorithms."""
+    record = _latest_experiment(dataset_name, model, k)
+    if record is None:
+        return None
 
-    # Generate realistic representative seed nodes
-    # For Karate Club (n=34): hubs are 0 (Mr. Hi), 33 (John A), 32, 2, 1, 31...
-    if n <= 50:
-        hubs_pool = [0, 33, 32, 2, 1, 31, 8, 13, 23, 27, 3, 7, 19, 29, 30]
-        deg_map = {0: 16, 33: 17, 32: 12, 2: 10, 1: 9, 31: 6, 8: 5, 13: 5, 23: 5, 27: 4, 3: 6, 7: 4, 19: 3, 29: 4, 30: 4}
-        comm_map = {0: 1, 33: 2, 32: 2, 2: 1, 1: 1, 31: 2, 8: 1, 13: 1, 23: 2, 27: 2, 3: 1, 7: 1, 19: 1, 29: 2, 30: 2}
-    elif n <= 100:
-        hubs_pool = [14, 37, 40, 18, 52, 29, 2, 8, 33, 21, 57, 46, 50, 9, 11]
-        deg_map = {node: 12 - (idx % 6) for idx, node in enumerate(hubs_pool)}
-        comm_map = {node: (idx % 3) + 1 for idx, node in enumerate(hubs_pool)}
+    rows = record.get("summary") or []
+    candidates = []
+    for row in rows:
+        detail = _detail_for(record, row)
+        seeds = _seed_sets_of(detail)
+        if seeds:
+            candidates.append((row, seeds))
+    if not candidates:
+        return None
+
+    def find(code: str):
+        return next((item for item in candidates if str(item[0].get("code", "")).lower() == code), None)
+
+    pair = (find("iga"), find("ga"))
+    if not all(pair):
+        pair = tuple(candidates[:2]) if len(candidates) >= 2 else (candidates[0], None)
+
+    row_a, seeds_a = pair[0]
+    row_b, seeds_b = pair[1] if pair[1] else (None, [])
+
+    paired = min(len(seeds_a), len(seeds_b)) if seeds_b else 0
+    jaccard_scores = [_jaccard(seeds_a[i], seeds_b[i]) for i in range(paired)]
+    shared_counts = [len(set(seeds_a[i]) & set(seeds_b[i])) for i in range(paired)]
+    unique_a = [len(set(seeds_a[i]) - set(seeds_b[i])) for i in range(paired)]
+    unique_b = [len(set(seeds_b[i]) - set(seeds_a[i])) for i in range(paired)]
+
+    jaccard = _mean(jaccard_scores) if jaccard_scores else 0.0
+    shared = _mean(shared_counts) if shared_counts else 0.0
+    only_a = _mean(unique_a) if unique_a else float(len(set(seeds_a[0]))) if seeds_a else 0.0
+    only_b = _mean(unique_b) if unique_b else float(len(set(seeds_b[0]))) if seeds_b else 0.0
+
+    union_b = set().union(*(set(s) for s in seeds_b)) if seeds_b else set()
+
+    def node_rows(seed_sets: Sequence[Sequence[int]], other_union: set) -> List[Dict[str, Any]]:
+        counts: Dict[int, int] = {}
+        for seed_set in seed_sets:
+            for node in set(seed_set):
+                counts[node] = counts.get(node, 0) + 1
+        ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        return [
+            {
+                "node_id": node,
+                "frequency": count,
+                "runs": len(seed_sets),
+                "is_shared": node in other_union,
+            }
+            for node, count in ordered
+        ]
+
+    name_a = row_a.get("algorithm") or "Thuật toán A"
+    name_b = (row_b or {}).get("algorithm") or "—"
+    nodes_iga = node_rows(seeds_a, union_b or set())
+    nodes_ga = node_rows(seeds_b, set().union(*(set(s) for s in seeds_a)) if seeds_a else set())
+
+    if paired:
+        insight = (
+            f"{name_a} và {name_b} chia sẻ trung bình {shared:.1f}/{int(_as_float(record.get('k'), 0))} "
+            f"đỉnh hạt giống qua {paired} cặp lần chạy (Jaccard trung bình = {jaccard * 100:.1f}%). "
+            f"Số đỉnh riêng trung bình: {name_a} = {only_a:.1f}, {name_b} = {only_b:.1f}."
+        )
     else:
-        hubs_pool = [107, 348, 414, 686, 698, 1684, 1912, 2045, 2174, 3437, 3980, 520, 890, 1024, 2500]
-        deg_map = {node: 180 - idx * 9 for idx, node in enumerate(hubs_pool)}
-        comm_map = {node: (idx % 5) + 1 for idx, node in enumerate(hubs_pool)}
-
-    # IGA selects high quality diverse nodes across communities
-    seeds_iga = hubs_pool[:k]
-    # GA overlaps partially but misses bridge nodes (local clustering)
-    # E.g. 60-70% overlap
-    overlap_count = max(1, int(k * 0.6))
-    seeds_ga = seeds_iga[:overlap_count] + hubs_pool[k: k + (k - overlap_count)]
-    # CELF greedy seeds
-    seeds_celf = hubs_pool[:k]
-
-    set_iga = set(seeds_iga)
-    set_ga = set(seeds_ga)
-    intersection = set_iga.intersection(set_ga)
-    union = set_iga.union(set_ga)
-    jaccard = round(len(intersection) / len(union), 3) if union else 1.0
-
-    # Build node detail objects
-    nodes_iga_info = []
-    for node in seeds_iga:
-        deg = deg_map.get(node, 8)
-        nodes_iga_info.append({
-            "node_id": node,
-            "degree": deg,
-            "in_degree": deg // 2,
-            "out_degree": deg - (deg // 2),
-            "community": f"Cluster {comm_map.get(node, 1)}",
-            "is_shared": node in intersection,
-        })
-
-    nodes_ga_info = []
-    for node in seeds_ga:
-        deg = deg_map.get(node, 7)
-        nodes_ga_info.append({
-            "node_id": node,
-            "degree": deg,
-            "in_degree": deg // 2,
-            "out_degree": deg - (deg // 2),
-            "community": f"Cluster {comm_map.get(node, 1)}",
-            "is_shared": node in intersection,
-        })
+        insight = (
+            f"Chỉ có dữ liệu tập hạt giống của {name_a} ({len(seeds_a)} lần chạy); "
+            f"không đủ hai thuật toán để tính Jaccard."
+        )
 
     return {
         "dataset": dataset_name,
-        "k": k,
+        "k": int(_as_float(record.get("k"), 0)),
+        "algorithm_a": name_a,
+        "algorithm_b": name_b,
         "jaccard_similarity": jaccard,
         "jaccard_pct": f"{jaccard * 100:.1f}%",
-        "shared_count": len(intersection),
-        "union_count": len(union),
-        "unique_iga_count": len(set_iga - set_ga),
-        "unique_ga_count": len(set_ga - set_iga),
-        "shared_nodes": sorted(list(intersection)),
-        "unique_iga_nodes": sorted(list(set_iga - set_ga)),
-        "unique_ga_nodes": sorted(list(set_ga - set_iga)),
-        "nodes_iga": nodes_iga_info,
-        "nodes_ga": nodes_ga_info,
-        "insight": (
-            f"IGA và Baseline GA chia sẻ {len(intersection)}/{k} đỉnh hạt giống (Jaccard = {jaccard * 100:.1f}%). "
-            f"IGA phát hiện thêm các đỉnh cầu nối ({', '.join(map(str, sorted(list(set_iga - set_ga))))}) "
-            f"thuộc các cụm cộng đồng độc lập, giúp ngăn ngừa hiện tượng chồng lấn vùng phủ (influence overlap) mà GA thường gặp."
-        )
+        "shared_count": shared,
+        "paired_runs": paired,
+        "unique_iga_count": only_a,
+        "unique_ga_count": only_b,
+        "nodes_iga": nodes_iga,
+        "nodes_ga": nodes_ga,
+        "insight": insight,
     }
 
 
-def export_statistics_csv(tab_name: str, dataset_name: str = "Karate Club", k: int = 10) -> str:
-    """Generates standard CSV format string for any of the 5 tabs."""
-    lines = []
+# ─────────────────────────────────────────────────────────────────────────────
+#  CSV export (real data only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def export_statistics_csv(
+    tab_name: str,
+    dataset_name: str = "",
+    k: Optional[int] = None,
+    model: str = "IC",
+) -> str:
+    """Builds a CSV for the selected tab from the same real data as the UI."""
+    lines: List[str] = []
+
     if tab_name == "overview":
-        summary = get_performance_summary(dataset_name, k=k)
-        lines.append("Algorithm,Best Spread,Mean Spread,Median Spread,Std Dev,95% CI,Runs,Prep Time,Search Time,Eval Time,Total Time,Rank")
-        for r in summary:
-            lines.append(f'"{r["algorithm"]}",{r["best_spread"]},{r["mean_spread"]},{r["median_spread"]},{r["std_spread"]},"{r["ci_95"]}",{r["runs"]},"{r["time_prep"]}","{r["time_search"]}","{r["time_eval"]}","{r["time_total"]}",{r["rank"]}')
+        summary = get_performance_summary(dataset_name, k=k, model=model)
+        if not summary:
+            return ""
+        lines.append("Algorithm,Best Spread,Mean Spread,Median Spread,Std Dev,95% CI,Runs,Total Time (s),Rank")
+        for row in summary:
+            lines.append(
+                f'"{row["algorithm"]}",{row["best_spread"]},{row["mean_spread"]},'
+                f'{row["median_spread"]},{row["std_spread"]},"{row["ci_95"]}",'
+                f'{row["runs"]},{row["time_total_num"]:.4f},{row["rank"]}'
+            )
+
     elif tab_name == "spread":
-        data = get_spread_vs_k_data(dataset_name)
-        k_list = data["k_list"]
-        lines.append("Algorithm," + ",".join(f"k={k}" for k in k_list))
-        for code, curve in data["curves"].items():
-            lines.append(f'"{curve["name"]}",' + ",".join(str(m) for m in curve["means"]))
+        data = get_spread_vs_k_data(dataset_name, model=model, k=k)
+        if not data["curves"]:
+            return ""
+        lines.append("Algorithm," + ",".join(f"k={value}" for value in data["k_list"]))
+        for curve in data["curves"].values():
+            lines.append(f'"{curve["name"]}",' + ",".join(str(v) for v in curve["means"]))
+
     elif tab_name == "runtime":
-        data = get_runtime_analysis_data(dataset_name)
-        lines.append("Algorithm,Preprocessing (s),Search Runtime (s),Evaluation Runtime (s),Total Runtime (s)")
-        for st in data["stages"]:
-            lines.append(f'"{st["algorithm"]}",{st["prep"]:.3f},{st["search"]:.3f},{st["eval"]:.3f},{st["total"]:.3f}')
+        data = get_runtime_analysis_data(dataset_name, model=model, k=k)
+        if not data["stages"]:
+            return ""
+        lines.append("Algorithm,Total Runtime (s),Runs")
+        for stage in data["stages"]:
+            lines.append(f'"{stage["algorithm"]}",{stage["total"]:.4f},{stage["runs"]}')
+
     elif tab_name == "convergence":
-        conv = get_convergence_data(dataset_name, k=k)
-        lines.append("Generation,Evaluations,IGA Best Fitness,IGA Avg Fitness,GA Best Fitness,GA Avg Fitness,PSO Best Fitness")
-        for g, ev, ib, ia, gb, ga, pb in zip(
-            conv["generations"], conv["evaluations"],
-            conv["iga"]["best"], conv["iga"]["avg"],
-            conv["ga"]["best"], conv["ga"]["avg"],
-            conv["pso"]["best"]
-        ):
-            lines.append(f"{g},{ev},{ib},{ia},{gb},{ga},{pb}")
+        convergence = get_convergence_data(dataset_name, k=k, model=model)
+        if not convergence:
+            return ""
+        for code, series in convergence["series"].items():
+            lines.append("")
+            lines.append(f'# {series["name"]} ({code})')
+            lines.append("Generation,Evaluations,Best Fitness,Average Fitness")
+            for gen, ev, best, avg in zip(
+                series["generations"], series["evaluations"], series["best"], series["avg"]
+            ):
+                lines.append(f"{gen},{ev},{best},{avg}")
+        if lines and not lines[0]:
+            lines.pop(0)
+
     elif tab_name == "seed_set":
-        s_data = get_seed_set_analysis_data(dataset_name, k=k)
-        lines.append("Algorithm,Node ID,Degree,In-Degree,Out-Degree,Community,Is Shared")
-        for n in s_data["nodes_iga"]:
-            lines.append(f'"IGA",{n["node_id"]},{n["degree"]},{n["in_degree"]},{n["out_degree"]},"{n["community"]}",{n["is_shared"]}')
-        for n in s_data["nodes_ga"]:
-            lines.append(f'"Baseline GA",{n["node_id"]},{n["degree"]},{n["in_degree"]},{n["out_degree"]},"{n["community"]}",{n["is_shared"]}')
+        data = get_seed_set_analysis_data(dataset_name, k=k, model=model)
+        if not data:
+            return ""
+        lines.append("Algorithm,Node ID,Selected Runs,Total Runs,Shared")
+        for node in data["nodes_iga"]:
+            lines.append(
+                f'"{data["algorithm_a"]}",{node["node_id"]},'
+                f'{node["frequency"]},{node["runs"]},{node["is_shared"]}'
+            )
+        for node in data["nodes_ga"]:
+            lines.append(
+                f'"{data["algorithm_b"]}",{node["node_id"]},'
+                f'{node["frequency"]},{node["runs"]},{node["is_shared"]}'
+            )
 
     return "\n".join(lines)
-

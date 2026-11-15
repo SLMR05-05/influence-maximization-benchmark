@@ -1,7 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
-import time
 from .problem import IMProblem
 from .solution import Solution
 
@@ -38,8 +37,8 @@ class AlgorithmResult:
 
 class BaseAlgorithm(ABC):
     """
-    Pygmo-inspired Abstract Base Class for all Influence Maximization algorithms
-    (Heuristics, Greedy, GA, PSO, ACO).
+    Abstract Base Class for all implemented Influence Maximization algorithms
+    (heuristics, greedy, genetic algorithms).
     """
     def __init__(self, name: str, config: Dict[str, Any] | None = None):
         self.name = name

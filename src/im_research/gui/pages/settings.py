@@ -10,12 +10,11 @@ if str(PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import customtkinter as ctk
-import tkinter as tk
 
 from im_research.gui.core.theme import *
-from im_research.gui.core.tooltip import Tooltip
-from im_research.gui.core.ui_helpers import section_header, metric_card
+from im_research.gui.core.ui_helpers import section_header
 from im_research.core.diffusion_config import get_ic_config
+from im_research.core.theme_config import get_theme, set_theme, get_font_scale, set_font_scale, FONT_SCALE_MAP
 
 
 class PageSettings(ctk.CTkScrollableFrame):
@@ -25,6 +24,11 @@ class PageSettings(ctk.CTkScrollableFrame):
 
     def _build(self):
         ic_config = get_ic_config()
+        raw_dir = PROJECT_ROOT / "data" / "raw"
+        dataset_files = [
+            "karate.txt", "dolphins.txt", "facebook.txt", "nethept.txt", "enron.txt"
+        ]
+        ready_datasets = sum(1 for name in dataset_files if (raw_dir / name).exists())
         section_header(
             self,
             "Cài đặt hệ thống & Môi trường tính toán",
@@ -33,17 +37,35 @@ class PageSettings(ctk.CTkScrollableFrame):
 
         # ── 1. Appearance & Theme ─────────────────────────────────────────────
         self._card("1. Giao diện & Chủ đề (Appearance & Theme)")
-        theme_row = ctk.CTkFrame(self, fg_color="transparent")
-        theme_row.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(theme_row, text="Chế độ:", font=FONT_MAIN, width=200, anchor="w", text_color=SUBTEXT_FG).pack(side="left")
+
+        # Theme Mode Row (Properly nested inside card)
+        theme_row = ctk.CTkFrame(self._current_card, fg_color="transparent")
+        theme_row.pack(fill="x", padx=16, pady=6)
+        ctk.CTkLabel(theme_row, text="Chế độ màu giao diện:", font=FONT_MAIN, width=320, anchor="w", text_color=SUBTEXT_FG).pack(side="left")
         curr = get_theme()
         self.theme_menu = ctk.CTkOptionMenu(
-            theme_row, width=220,
+            theme_row, width=240, height=32,
             values=["Sáng (Light)", "Tối (Dark)", "Theo hệ thống (System)"],
             command=self._on_theme
         )
         self.theme_menu.set("Tối (Dark)" if curr == "dark" else ("Sáng (Light)" if curr == "light" else "Theo hệ thống (System)"))
         self.theme_menu.pack(side="left")
+
+        # Inner Divider
+        ctk.CTkFrame(self._current_card, height=1, fg_color=BORDER_COLOR).pack(fill="x", padx=16, pady=4)
+
+        # Font Size / Scaling Row
+        font_row = ctk.CTkFrame(self._current_card, fg_color="transparent")
+        font_row.pack(fill="x", padx=16, pady=(4, 12))
+        ctk.CTkLabel(font_row, text="Kích thước cỡ chữ (Font Size / Scaling):", font=FONT_MAIN, width=320, anchor="w", text_color=SUBTEXT_FG).pack(side="left")
+        curr_scale = get_font_scale()
+        self.font_menu = ctk.CTkOptionMenu(
+            font_row, width=240, height=32,
+            values=list(FONT_SCALE_MAP.keys()),
+            command=self._on_font_scale
+        )
+        self.font_menu.set(curr_scale)
+        self.font_menu.pack(side="left")
 
         # ── 2. C++ Engine ─────────────────────────────────────────────────────
         self._card("2. C++ Engine (Lõi tính toán song song)")
@@ -62,10 +84,10 @@ class PageSettings(ctk.CTkScrollableFrame):
         for lbl, val in [
             ("Dataset mặc định:", "Karate Club"),
             ("Mô hình lan truyền:", f"IC (Independent Cascade, p={ic_config['edge_probability']:g})"),
-            ("Giá trị k khảo sát:", "5, 10, 15, 20, 25, 30, 40, 50"),
-            ("Số lần lặp độc lập (Runs):", "30"),
-            ("Ngân sách đánh giá (Max evals):", "10,000"),
-            ("Tự động lưu điểm kiểm tra:", "Bật"),
+            ("Giá trị k khảo sát:", "Cấu hình trong trang Thí nghiệm (mặc định runner: k = 10)"),
+            ("Số lần lặp độc lập (Runs):", "Cấu hình trong trang Thí nghiệm (mặc định runner: 1)"),
+            ("Ngân sách đánh giá (Max evals):", "Không giới hạn mặc định; dừng theo max_generations"),
+            ("Tự động lưu điểm kiểm tra:", "Chưa triển khai"),
         ]:
             self._row(lbl, val)
 
@@ -73,13 +95,13 @@ class PageSettings(ctk.CTkScrollableFrame):
         self._card("4. Algorithm Hyperparameters (Siêu tham số thuật toán)")
         for lbl, val in [
             ("IGA — Kích thước quần thể (pop_size):", "50"),
-            ("IGA — Số thế hệ tối đa (max_gen):", "200"),
+            ("IGA — Số thế hệ tối đa (max_gen):", "100"),
             ("IGA — Tỷ lệ lai ghép thích nghi (crossover_rate):", "0.85"),
             ("IGA — Xác suất đột biến cơ sở (pm_base):", "0.10"),
             ("IGA — Ngưỡng phân hóa đa dạng (threshold_div):", "0.30"),
             ("IGA — Số cá thể ưu tú bảo tồn (elite_count):", "2"),
             ("GA Baseline — Kích thước quần thể:", "50"),
-            ("GA Baseline — Số thế hệ tối đa:", "200"),
+            ("GA Baseline — Số thế hệ tối đa:", "100"),
             ("GA Baseline — Xác suất đột biến ngẫu nhiên:", "0.10"),
             ("PageRank — Hệ số cản ngẫu nhiên (damping):", "0.85"),
             ("Degree Discount — Xác suất truyền p:", "0.10"),
@@ -96,7 +118,7 @@ class PageSettings(ctk.CTkScrollableFrame):
             ("Thư mục kịch bản & siêu tham số:", "configs/"),
             ("Thư mục mã nguồn C++ Core (OpenMP):", "cpp_core/"),
             ("Thư mục xuất báo cáo & luận văn:", "runs/reports/"),
-            ("Trạng thái 5 bộ dữ liệu benchmark chuẩn:", "100% Sẵn sàng (Karate, Dolphins, Facebook, NetHEPT, Enron)"),
+            ("Trạng thái bộ dữ liệu benchmark:", f"{ready_datasets}/{len(dataset_files)} tệp có trong data/raw"),
         ]:
             self._row(lbl, val)
 
@@ -138,3 +160,6 @@ class PageSettings(ctk.CTkScrollableFrame):
         top = self.winfo_toplevel()
         if hasattr(top, "on_theme_changed"):
             top.on_theme_changed(mode)
+
+    def _on_font_scale(self, scale_key: str):
+        set_font_scale(scale_key)

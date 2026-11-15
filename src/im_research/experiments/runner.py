@@ -7,13 +7,11 @@ Saves reproducible logs, convergence histories, and summary tables.
 
 from __future__ import annotations
 import sys
-import os
 import argparse
 import time
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any
 
 # Ensure project src is in Python path
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -29,6 +27,7 @@ from im_research.algorithms.heuristics.degree_discount import DegreeDiscount
 from im_research.algorithms.heuristics.pagerank import PageRankHeuristic
 from im_research.algorithms.greedy.celf import CELF
 from im_research.algorithms.evolutionary.ga import BaselineGA
+from im_research.algorithms.evolutionary.iga import IGA
 
 ALGORITHM_REGISTRY = {
     "degree": lambda **kw: DegreeCentrality(),
@@ -36,15 +35,15 @@ ALGORITHM_REGISTRY = {
     "pagerank": lambda **kw: PageRankHeuristic(damping=0.85, max_iter=30),
     "celf": lambda **kw: CELF(),
     "ga": lambda **kw: BaselineGA(pop_size=kw.get("pop_size", 50), max_generations=kw.get("max_gen", 100)),
-    "baseline_ga": lambda **kw: BaselineGA(pop_size=kw.get("pop_size", 50), max_generations=kw.get("max_gen", 100)),
+    "iga": lambda **kw: IGA(pop_size=kw.get("pop_size", 50), max_generations=kw.get("max_gen", 100)),
 }
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="IM Experiment Runner")
     parser.add_argument("--dataset", type=str, default="Karate Club", help="Dataset name")
-    parser.add_argument("--model", type=str, default="IC", choices=["IC"], help="Diffusion model (only IC is implemented)")
-    parser.add_argument("--p", type=float, default=0.1, help="Uniform IC edge probability")
+    parser.add_argument("--model", type=str, default="IC", choices=["IC", "WC"], help="Diffusion model: IC (Independent Cascade) or WC (Weighted Cascade)")
+    parser.add_argument("--p", type=float, default=0.1, help="Uniform IC edge probability (used when model=IC)")
     parser.add_argument("--seed", type=int, default=42, help="Search evaluator seed")
     parser.add_argument("--seed_val", type=int, default=12345, help="Validation evaluator seed")
     parser.add_argument("--k", type=int, default=10, help="Seed set size k")
@@ -60,7 +59,9 @@ def run_experiments():
     args = parse_args()
     if not 0.0 < args.p <= 1.0:
         raise SystemExit("--p must be in the range (0, 1].")
-    selected_algos = args.algos or ["celf", "ga", "degree_discount", "pagerank", "degree"]
+    selected_algos = args.algos or [
+        "iga", "ga", "celf", "degree_discount", "pagerank", "degree"
+    ]
 
     print("=" * 70)
     print("      IM-Benchmark-Lab — INFLUENCE MAXIMIZATION EXPERIMENT RUNNER")
@@ -76,8 +77,8 @@ def run_experiments():
     print("-" * 70)
 
     # 1. Load Dataset
-    print(f"[1/4] Loading graph dataset '{args.dataset}'...")
-    cpp_graph, meta = load_graph(args.dataset, p=args.p)
+    print(f"[1/4] Loading graph dataset '{args.dataset}' (Model: {args.model})...")
+    cpp_graph, meta = load_graph(args.dataset, p=args.p, model=args.model)
     print(f"      Graph loaded: {cpp_graph.num_nodes()} nodes, {cpp_graph.num_edges()} edges")
 
     # 2. Setup C++ Shared Evaluator (IC only — LT is not implemented in the core)
@@ -106,36 +107,49 @@ def run_experiments():
     detailed_results = {}
 
     # 4. Execute Algorithms
-    print(f"\n[2/4] Running {len(selected_algos)} algorithms across {args.runs} repetition(s)...")
+    print(f"\n[2/4] Running {len(selected_algos)} algorithms across {args.runs} repetition(s)...", flush=True)
 
     for algo_key in selected_algos:
         if algo_key not in ALGORITHM_REGISTRY:
-            print(f"  [WARN] Unknown algorithm '{algo_key}', skipping.")
+            print(f"  [WARN] Unknown algorithm '{algo_key}', skipping.", flush=True)
             continue
 
         algo_builder = ALGORITHM_REGISTRY[algo_key]
         algo_instance = algo_builder(p=args.p)
         algo_name = algo_instance.name
 
-        print(f"\n>> Executing: {algo_name}")
+        print(f"\n>> Executing: {algo_name}", flush=True)
         run_spreads = []
         run_times = []
         run_solutions = []
+        run_details = []
 
         for r in range(args.runs):
             seed = args.seed + r * 7
             t0 = time.perf_counter()
+            print(f"   ── [Run {r+1}/{args.runs}] Khởi chạy {algo_name} (seed={seed})...", flush=True)
             res = algo_instance.run(problem, seed=seed)
             t_elapsed = time.perf_counter() - t0
 
             # Validate solution with high-precision validation evaluator
+            print(f"   ── [Run {r+1}/{args.runs}] Đang kiểm định nghiệm bằng {args.mc_val} lượt Monte Carlo...", flush=True)
             val_spread = val_problem.fitness(res.best_solution)
 
             run_spreads.append(val_spread)
             run_times.append(t_elapsed)
             run_solutions.append(res.best_solution.seed_set)
+            run_details.append({
+                "run": r + 1,
+                "seed": seed,
+                "spread": float(val_spread),
+                "wall_time": float(t_elapsed),
+                "search_time": float(getattr(res, "search_time", 0.0)),
+                "evaluations": int(getattr(res, "total_evaluations", 0)),
+                "seed_set": list(res.best_solution.seed_set),
+                "convergence": getattr(res, "convergence_history", []) or [],
+            })
 
-            print(f"   [Run {r+1}/{args.runs}] Spread: {val_spread:.2f} | Time: {t_elapsed:.3f}s | Seeds: {res.best_solution.seed_set[:5]}...")
+            print(f"   ✓ [Run {r+1}/{args.runs}] Hoàn tất! Spread: {val_spread:.2f} | Thời gian: {t_elapsed:.3f}s | Hạt giống: {res.best_solution.seed_set[:min(args.k, 8)]}...", flush=True)
 
         mean_spread = float(np.mean(run_spreads))
         std_spread = float(np.std(run_spreads))
@@ -151,9 +165,11 @@ def run_experiments():
         })
 
         detailed_results[algo_name] = {
+            "code": algo_key,
             "spreads": run_spreads,
             "times": run_times,
             "seeds": run_solutions,
+            "runs_detail": run_details,
         }
 
     # Sort results table by mean_spread descending

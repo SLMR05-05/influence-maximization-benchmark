@@ -54,6 +54,7 @@ class DegreeDiscount(BaseAlgorithm):
         selected: List[int] = []
         selected_set: Set[int] = set()
 
+        print(f"      [DegreeDiscount] Đang chọn k={k} hạt giống theo thuật toán Degree Discount...", flush=True)
         for _ in range(k):
             # Pick node with max discounted degree not yet selected
             best_u = max(
@@ -72,6 +73,8 @@ class DegreeDiscount(BaseAlgorithm):
                     dv = degree[v]
                     tv = t[v]
                     dd[v] = dv - 2 * tv - (dv - tv) * tv * p
+
+        print(f"      [DegreeDiscount] Hoàn tất! Đã chọn {len(selected)} hạt giống: {selected[:min(k, 8)]}...", flush=True)
 
         seed_set = sorted(selected)
         solution = Solution(seed_set)

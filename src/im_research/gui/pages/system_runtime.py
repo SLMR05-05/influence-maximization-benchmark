@@ -6,21 +6,17 @@ and Benchmark Environment History Tracking for Academic Reproducibility.
 
 from __future__ import annotations
 import sys
-import os
 from pathlib import Path
-from typing import Dict, List, Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import customtkinter as ctk
-import tkinter as tk
 from tkinter import messagebox, filedialog
 
 from im_research.gui.core.theme import *
-from im_research.gui.core.tooltip import Tooltip
-from im_research.gui.core.ui_helpers import section_header, metric_card
+from im_research.gui.core.ui_helpers import metric_card
 from im_research.core.runtime_inspector import (
     get_environment_overview,
     get_cpp_engine_status,
@@ -194,7 +190,7 @@ class PageSystemRuntime(ctk.CTkScrollableFrame):
             ("Hệ thống quản lý Build:", self.env_data["cmake_version"]),
             ("Thư viện liên kết:", self.env_data["pybind11_version"]),
             ("Tiêu chuẩn ngôn ngữ:", "C++17 (ISO/IEC 14882:2017)"),
-            ("Cờ tối ưu hóa:", "-O3 -march=native -fopenmp"),
+            ("Cờ tối ưu hóa:", self.cpp_data["build_config"]),
         ]:
             self._key_val_row(right_box, lbl, val)
         ctk.CTkFrame(right_box, height=8, fg_color="transparent").pack()
@@ -250,10 +246,10 @@ class PageSystemRuntime(ctk.CTkScrollableFrame):
         for c in range(4):
             grid.columnconfigure(c, weight=1)
 
-        metric_card(grid, "Phiên bản Lõi", "C++17 CSR v1.0", "Fast Evaluator Ready", BLUE, 0, 0)
-        metric_card(grid, "Cấu hình Biên dịch", "Release (-O3)", "AVX2 & Native OpenMP", GREEN, 1, 0)
-        metric_card(grid, "Liên kết pybind11", "_im_core.so", f"Kích thước {self.cpp_data['binary_size_kb']}", PURPLE, 2, 0)
-        metric_card(grid, "Kiểm thử Đơn vị", "9 / 9 Tests", "100% Passed Thành công", TEAL, 3, 0)
+        metric_card(grid, "Phiên bản Lõi", self.cpp_data["version"], "C++ Evaluator", BLUE, 0, 0)
+        metric_card(grid, "Cấu hình Biên dịch", self.cpp_data["build_config"], "Cờ tối ưu từ CMakeLists", GREEN, 1, 0)
+        metric_card(grid, "Liên kết pybind11", self.cpp_data["binding_module"], f"Kích thước {self.cpp_data['binary_size_kb']}", PURPLE, 2, 0)
+        metric_card(grid, "Kiểm thử Đơn vị", "Chưa chạy", self.cpp_data["unit_test_status"], TEAL, 3, 0)
 
         # C++ Engine Details Box
         detail_box = ctk.CTkFrame(card, fg_color=("#f8fafc", "#0d1424"), corner_radius=8,

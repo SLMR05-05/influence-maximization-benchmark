@@ -21,7 +21,7 @@ import tkinter as tk
 from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
 from im_research.gui.core.icon_factory import IconSet
-from im_research.core.theme_config import get_theme, set_theme
+from im_research.core.theme_config import get_theme, set_theme, is_dark_mode
 
 
 class Sidebar(ctk.CTkFrame):
@@ -124,8 +124,7 @@ class Sidebar(ctk.CTkFrame):
         ctk.CTkFrame(self, height=1, fg_color=DIVIDER).pack(fill="x", padx=14, pady=(8, 10))
 
         # Quick Theme Toggle Button
-        curr_theme = get_theme()
-        is_dark = curr_theme == "dark"
+        is_dark = is_dark_mode()
         theme_txt = "   Chế độ Sáng" if is_dark else "   Chế độ Tối"
         theme_icon_name = "sun" if is_dark else "moon"
 
@@ -217,7 +216,12 @@ class Sidebar(ctk.CTkFrame):
 
     def _on_quick_theme_toggle(self):
         curr = get_theme()
-        new_mode = "light" if curr == "dark" else "dark"
+        if curr == "dark":
+            new_mode = "light"
+        elif curr == "light":
+            new_mode = "dark"
+        else:
+            new_mode = "light" if is_dark_mode() else "dark"
         set_theme(new_mode)
         ctk.set_appearance_mode(new_mode)
 
@@ -231,7 +235,7 @@ class Sidebar(ctk.CTkFrame):
                 top.on_theme_changed(new_mode)
 
     def update_theme_icon(self, mode: str):
-        is_dark = mode == "dark"
+        is_dark = mode == "dark" if mode in ("dark", "light") else is_dark_mode()
         theme_txt = "   Chế độ Sáng" if is_dark else "   Chế độ Tối"
         theme_icon_name = "sun" if is_dark else "moon"
         if hasattr(self, "theme_btn"):
@@ -275,7 +279,7 @@ class Sidebar(ctk.CTkFrame):
 
         def on_enter(event=None):
             orig_enter(event)
-            is_dark = get_theme() == "dark"
+            is_dark = is_dark_mode()
             icon_name = "sun" if is_dark else "moon"
             self.theme_btn.configure(
                 text_color=SIDEBAR_HOVER_TEXT,
@@ -284,7 +288,7 @@ class Sidebar(ctk.CTkFrame):
 
         def on_leave(event=None):
             orig_leave(event)
-            is_dark = get_theme() == "dark"
+            is_dark = is_dark_mode()
             icon_name = "sun" if is_dark else "moon"
             self.theme_btn.configure(
                 text_color=SUBTEXT_FG,

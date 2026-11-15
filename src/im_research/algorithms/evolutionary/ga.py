@@ -108,11 +108,14 @@ class BaselineGA(BaseAlgorithm):
         convergence_history = []
 
         # ---- Initial Population (Random) ---- #
+        print(f"      [BaselineGA] Khởi tạo ngẫu nhiên quần thể N={self.pop_size}...", flush=True)
         pop = problem.create_random_population(self.pop_size, np_rng)
         scores = problem.batch_fitness(pop)
         total_evals += self.pop_size
 
         best_ever = pop.best
+        print(f"      [BaselineGA] Hoàn tất t=0 | Best Spread = {best_ever.fitness:.2f} | Đa dạng Jaccard = {pop.diversity_jaccard():.3f}", flush=True)
+
         convergence_history.append({
             "generation": 0,
             "best_fitness": best_ever.fitness,
@@ -122,8 +125,10 @@ class BaselineGA(BaseAlgorithm):
         })
 
         # ---- Evolution Loop ---- #
+        log_interval = max(1, max_gen // 10)
         for gen in range(1, max_gen + 1):
             if total_evals >= budget:
+                print(f"      [BaselineGA] [Gen {gen}] Đạt giới hạn budget={budget}. Dừng sớm.", flush=True)
                 break
 
             new_individuals: List[Solution] = []
@@ -162,6 +167,12 @@ class BaselineGA(BaseAlgorithm):
             if (best_ever.fitness or 0.0) < (gen_best.fitness or 0.0):
                 best_ever = gen_best
 
+            if gen == 1 or gen % log_interval == 0 or gen == max_gen:
+                print(
+                    f"      [BaselineGA] Thế hệ {gen:3d}/{max_gen} | Best Spread: {best_ever.fitness:6.2f} | Mean: {pop.mean_fitness:6.2f} | Đa dạng: {pop.diversity_jaccard():.3f}",
+                    flush=True,
+                )
+
             convergence_history.append({
                 "generation": gen,
                 "best_fitness": best_ever.fitness,
@@ -173,6 +184,7 @@ class BaselineGA(BaseAlgorithm):
         t_search_end = time.perf_counter()
 
         # Final validation
+        print(f"      [BaselineGA] Hoàn tất tiến hóa! Đánh giá nghiệm cuối cùng...", flush=True)
         best_ever.fitness = problem.fitness(best_ever)
         total_evals += 1
 

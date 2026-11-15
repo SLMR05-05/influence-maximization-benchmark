@@ -8,10 +8,8 @@ if str(PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import customtkinter as ctk
-import tkinter as tk
 
 from im_research.gui.core.theme import *
-from im_research.gui.core.tooltip import Tooltip
 from im_research.gui.core.ui_helpers import section_header, metric_card, create_empty_state
 
 ALGORITHMS = [
@@ -19,7 +17,7 @@ ALGORITHMS = [
         "name": "IGA (Improved Genetic Algorithm)",
         "group": "Metaheuristic (Đề xuất)",
         "complexity": "O(G · pop · k · MC)",
-        "description": "Thuật toán đề xuất: Lai ghép thích nghi 2 điểm, đột biến đa thức, bảo tồn cá thể ưu tú",
+        "description": "Khởi tạo thiên lệch bậc, lai ghép tập hợp, đột biến thích nghi theo đa dạng Jaccard, định hướng bậc và bảo tồn tinh hoa",
         "status": "Sẵn sàng",
         "color": RED,
     },
@@ -35,14 +33,14 @@ ALGORITHMS = [
         "name": "GA (Standard Genetic Algorithm)",
         "group": "Metaheuristic Baseline",
         "complexity": "O(G · pop · k · MC)",
-        "description": "Thuật giải di truyền tiêu chuẩn: Chọn lọc bánh xe roulette, đột biến phân bố đều",
+        "description": "GA cơ sở: chọn lọc tournament, lai ghép tập hợp, đột biến đều và bảo tồn cá thể ưu tú",
         "status": "Sẵn sàng",
         "color": ORANGE,
     },
     {
         "name": "Degree Discount",
         "group": "Topological Heuristic",
-        "complexity": "O(k log |V| + |E|)",
+        "complexity": "O(k · |V| + |E|)",
         "description": "Heuristic đồ thị: Giảm bậc lân cận của đỉnh đã chọn để hạn chế trùng lặp lan truyền",
         "status": "Sẵn sàng",
         "color": GREEN,
@@ -79,9 +77,15 @@ class PageDashboard(ctk.CTkScrollableFrame):
             "Nền tảng thực nghiệm & đánh giá thuật toán Metaheuristic cho bài toán Tối đa hóa Lan truyền (IM)"
         )
 
-        # Count real runs in runs directory
+        # Count real runs and locally available raw datasets
         runs_dir = PROJECT_ROOT / "runs"
         exp_count = len(list(runs_dir.glob("EXP_*"))) if runs_dir.exists() else 0
+
+        raw_dir = PROJECT_ROOT / "data" / "raw"
+        dataset_files = [
+            "karate.txt", "dolphins.txt", "facebook.txt", "nethept.txt", "enron.txt"
+        ]
+        ready_datasets = sum(1 for name in dataset_files if (raw_dir / name).exists())
 
         # ── Stat Cards Grid ───────────────────────────────────────────────────
         grid = ctk.CTkFrame(self, fg_color="transparent")
@@ -90,9 +94,9 @@ class PageDashboard(ctk.CTkScrollableFrame):
             grid.columnconfigure(c, weight=1)
 
         metric_card(grid, "Tổng số thí nghiệm", str(exp_count), f"{exp_count} lượt chạy hoàn thành", BLUE if exp_count > 0 else SUBTEXT_FG, 0, 0)
-        metric_card(grid, "Bộ dữ liệu chuẩn", "5 / 5", "Dữ liệu gốc sẵn sàng", GREEN, 1, 0)
+        metric_card(grid, "Bộ dữ liệu chuẩn", f"{ready_datasets} / {len(dataset_files)}", "Tệp dữ liệu gốc có trong data/raw", GREEN if ready_datasets == len(dataset_files) else ORANGE, 1, 0)
         metric_card(grid, "C++ Core Engine", "OpenMP", "Đa luồng song song", PURPLE, 2, 0)
-        metric_card(grid, "Thuật toán thư viện", "6", "IGA + 5 Baselines", RED, 3, 0)
+        metric_card(grid, "Thuật toán thư viện", str(len(ALGORITHMS)), f"IGA + {len(ALGORITHMS) - 1} baselines", RED, 3, 0)
 
         # ── Quick Action Banner ───────────────────────────────────────────────
         banner = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,

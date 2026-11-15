@@ -30,7 +30,7 @@ class StatusBar(ctk.CTkFrame):
         self.pack_propagate(False)
 
         curr = get_theme()
-        theme_str = "Tối (Dark)" if curr == "dark" else "Sáng (Light)"
+        theme_str = "Tối (Dark)" if curr == "dark" else ("Sáng (Light)" if curr == "light" else "Hệ thống (System)")
 
         self._info_lbl = ctk.CTkLabel(
             self,
@@ -65,7 +65,7 @@ class StatusBar(ctk.CTkFrame):
         self._tick()
 
     def update_theme_display(self, mode: str):
-        theme_str = "Tối (Dark)" if mode == "dark" else "Sáng (Light)"
+        theme_str = "Tối (Dark)" if mode == "dark" else ("Sáng (Light)" if mode == "light" else "Hệ thống (System)")
         self._info_lbl.configure(
             text=f"● WSL2 Ubuntu 24.04 LTS  │  C++17 OpenMP Engine Ready  │  pybind11 Fast CSR  │  Chủ đề: {theme_str}"
         )

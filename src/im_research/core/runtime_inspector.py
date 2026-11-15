@@ -7,7 +7,6 @@ system resource usage (CPU, RAM, Process, Disk), and benchmark execution environ
 
 from __future__ import annotations
 import os
-import sys
 import json
 import shutil
 import platform
@@ -279,24 +278,24 @@ def get_cpp_engine_status() -> Dict[str, Any]:
         exists = False
 
     return {
-        "version": "C++17 OpenMP CSR Fast Evaluator v1.0.0",
-        "build_config": "Release (-O3 -march=native -fopenmp -DNDEBUG -fPIC)",
+        "version": "C++17 OpenMP CSR Fast Evaluator",
+        "build_config": "Release (-O3 -march=native -DNDEBUG -fPIC)",
         "binary_path": rel_path,
         "binary_size_kb": f"{size_kb} KB",
         "compilation_status": comp_status,
         "last_compiled": mtime_str,
-        "openmp_status": "Đa luồng song song OpenMP (Schedule Dynamic, Chunk 16)",
+        "openmp_status": "Đa luồng song song OpenMP (schedule dynamic)",
         "binding_module": "_im_core (pybind11 C++17)",
         "binding_status": "✓ Đã liên kết & Tương thích pybind11" if exists else "Chưa liên kết",
-        "gil_management": "py::gil_scoped_release (Giải phóng GIL, 100% CPU)",
+        "gil_management": "py::gil_scoped_release (Giải phóng GIL khi đánh giá)",
         "exported_classes": [
             "im_core::Graph (CSR matrix, from_edge_list, out_degree)",
             "im_core::Evaluator (evaluate, batch_evaluate, Monte Carlo)",
             "im_core::DiffusionModel (IndependentCascade, LinearThreshold)",
         ],
-        "unit_test_status": "9 / 9 Unit Tests Passed (100% OK)",
+        "unit_test_status": "Chưa chạy kiểm thử từ giao diện",
         "unit_test_suite": "tests/unit/test_cpp_core.py, tests/unit/test_algorithms.py",
-        "speedup": "85x – 120x so với Python NetworkX thuần",
+        "speedup": "Chưa đo",
     }
 
 
@@ -385,56 +384,10 @@ def get_system_resources() -> Dict[str, Any]:
 
 
 def load_execution_history() -> List[Dict[str, Any]]:
-    """Loads historical benchmark environment records."""
+    """Loads historical benchmark environment records written by real runs/snapshots."""
     METADATA_DIR.mkdir(parents=True, exist_ok=True)
     if not HISTORY_FILE.exists():
-        # Populate with standard authentic benchmark records for academic reference
-        default_history = [
-            {
-                "timestamp": "02/11/2026 16:45:10",
-                "exp_id": "EXP_20261102_KARATE_01",
-                "dataset": "Karate Club (n=34, m=78)",
-                "algorithm": "IGA (Improved GA)",
-                "compiler": "g++ 13.3.0 (-O3 OpenMP)",
-                "build_type": "Release (-march=native)",
-                "cpu": "AMD64 Family 25 (8C/16T)",
-                "ram": "16.0 GB",
-                "git_commit": "89f2c25",
-                "runtime_s": "0.142s",
-                "speedup": "92.4x vs Python",
-                "notes": "Mô phỏng 10.000 MC, tập hạt giống k=10",
-            },
-            {
-                "timestamp": "02/11/2026 17:10:22",
-                "exp_id": "EXP_20261102_DOLPHINS_02",
-                "dataset": "Dolphins (n=62, m=159)",
-                "algorithm": "CELF (Lazy Greedy)",
-                "compiler": "g++ 13.3.0 (-O3 OpenMP)",
-                "build_type": "Release (-march=native)",
-                "cpu": "AMD64 Family 25 (8C/16T)",
-                "ram": "16.0 GB",
-                "git_commit": "89f2c25",
-                "runtime_s": "0.385s",
-                "speedup": "88.1x vs Python",
-                "notes": "Mô phỏng 10.000 MC, tỉa nhánh lười cận mô-đun",
-            },
-            {
-                "timestamp": "02/11/2026 17:35:50",
-                "exp_id": "EXP_20261102_FACEBOOK_03",
-                "dataset": "ego-Facebook (n=4.039, m=88.234)",
-                "algorithm": "IGA (Improved GA)",
-                "compiler": "g++ 13.3.0 (-O3 OpenMP)",
-                "build_type": "Release (-march=native)",
-                "cpu": "AMD64 Family 25 (8C/16T)",
-                "ram": "16.0 GB",
-                "git_commit": "89f2c25",
-                "runtime_s": "4.812s",
-                "speedup": "115.6x vs Python",
-                "notes": "Batch evaluate 50 cá thể / thế hệ, OpenMP 16 threads",
-            },
-        ]
-        save_execution_history(default_history)
-        return default_history
+        return []
 
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -457,7 +410,7 @@ def capture_environment_snapshot(
     dataset: str = "Tất cả đồ thị (Tổng hợp)",
     algorithm: str = "Thử nghiệm hệ thống",
     runtime_s: str = "—",
-    speedup: str = "105.0x",
+    speedup: str = "—",
     notes: str = "Chụp Snapshot thủ công từ giao diện"
 ) -> Dict[str, Any]:
     """Captures complete current environment metadata and appends to history."""
@@ -473,7 +426,7 @@ def capture_environment_snapshot(
         "exp_id": exp_id,
         "dataset": dataset,
         "algorithm": algorithm,
-        "compiler": env["gcc_version"].split("(")[0].strip() or "g++ 13.3.0",
+        "compiler": env["gcc_version"].split("(")[0].strip() or "Chưa xác định",
         "build_type": cpp["build_config"],
         "cpu": env["cpu_model"],
         "ram": env["ram_total"],
@@ -519,7 +472,7 @@ Thư viện liên kết Python & """ + env["pybind11_version"] + r""" (Zero-copy
 Phiên bản Python WSL2 & """ + env["python_wsl"] + r""" \\
 Phiên bản Python Host GUI & """ + env["python_host"] + r""" \\
 Mã băm kiểm soát phiên bản & Git Commit \texttt{""" + env["git_commit"] + r"""} \\
-Gia tốc song song OpenMP & Đa luồng động (\texttt{schedule(dynamic, 16)}) \\
+Gia tốc song song OpenMP & Đa luồng động (\texttt{schedule(dynamic)}) \\
 Tỷ lệ tăng tốc C++ vs Python & """ + cpp["speedup"] + r""" \\
 \bottomrule
 \end{tabular}

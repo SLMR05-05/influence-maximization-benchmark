@@ -1,7 +1,9 @@
-"""Data Preview & Column Mapping — Xem trước và ánh xạ cột dữ liệu"""
+"""Data Preview & Column Mapping — Xem trước tệp dữ liệu thực do người dùng chọn."""
+from pathlib import Path
+
 import customtkinter as ctk
-from tkinter import ttk, messagebox
-import os
+from tkinter import ttk
+
 
 class DataPreviewMapping(ctk.CTkFrame):
     def __init__(self, parent, file_path=None):
@@ -9,86 +11,124 @@ class DataPreviewMapping(ctk.CTkFrame):
         self.file_path = file_path
         self.build_ui()
 
-    def build_ui(self):
-        ctk.CTkLabel(self, text="Data Preview & Column Mapping", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=10)
+    def _read_preview(self):
+        """Returns (line_count, sample_rows, column_count) for the selected file."""
+        if not self.file_path:
+            return 0, [], 0
+        path = Path(self.file_path)
+        if not path.exists() or not path.is_file():
+            return 0, [], 0
 
-        # File Info Section
+        sample_rows = []
+        line_count = 0
+        max_columns = 0
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#") or stripped.startswith("%"):
+                        continue
+                    line_count += 1
+                    parts = stripped.split()
+                    max_columns = max(max_columns, len(parts))
+                    if len(sample_rows) < 5:
+                        sample_rows.append(parts)
+        except Exception:
+            return 0, [], 0
+        return line_count, sample_rows, max_columns
+
+    def build_ui(self):
+        ctk.CTkLabel(
+            self, text="Data Preview & Column Mapping",
+            font=ctk.CTkFont(size=18, weight="bold")
+        ).pack(pady=10)
+
+        line_count, sample_rows, column_count = self._read_preview()
+        path = Path(self.file_path) if self.file_path else None
+
         info_frame = ctk.CTkFrame(self, fg_color="transparent")
         info_frame.pack(fill="x", padx=20, pady=5)
         ctk.CTkLabel(info_frame, text="File Info", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w")
 
         info_data = [
-            ("File Name", "wiki-vote.txt"),
-            ("File Format", "Edge List (Text)"),
-            ("Total Rows", "103,689"),
-            ("Detected Columns", "3"),
-            ("Encoding", "UTF-8"),
-            ("Delimiter", "Tab / Space"),
+            ("File Name", path.name if path and path.exists() else "Chưa chọn tệp"),
+            ("File Format", "Edge List (Text)" if sample_rows else "—"),
+            ("Total Rows", f"{line_count:,}".replace(",", ".") if line_count else "—"),
+            ("Detected Columns", str(column_count) if column_count else "—"),
+            ("Encoding", "UTF-8" if sample_rows else "—"),
+            ("Delimiter", "Tab / Space" if sample_rows else "—"),
         ]
-        for k, v in info_data:
+        for key, value in info_data:
             row = ctk.CTkFrame(info_frame, fg_color="transparent")
             row.pack(fill="x", pady=1)
-            ctk.CTkLabel(row, text=f"{k}:", width=150, anchor="w").pack(side="left")
-            ctk.CTkLabel(row, text=v, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=f"{key}:", width=150, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=value, anchor="w").pack(side="left")
 
-        # Column Mapping Section
-        ctk.CTkLabel(self, text="Column Mapping", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=20, pady=(10,5))
+        ctk.CTkLabel(
+            self, text="Column Mapping", font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(anchor="w", padx=20, pady=(10, 5))
         map_frame = ctk.CTkFrame(self, fg_color="transparent")
         map_frame.pack(fill="x", padx=20, pady=5)
 
-        columns = ["Column 1", "Column 2", "Column 3"]
         mapping_options = ["Ignore", "Source Node", "Target Node", "Edge Weight", "Edge ID"]
-
-        for i, col in enumerate(columns):
+        for index in range(max(column_count, 1)):
             row = ctk.CTkFrame(map_frame, fg_color="transparent")
             row.pack(fill="x", pady=3)
-            ctk.CTkLabel(row, text=col, width=120, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=f"Column {index + 1}", width=120, anchor="w").pack(side="left")
             combo = ctk.CTkComboBox(row, values=mapping_options, width=150)
-            combo.set(mapping_options[0] if i == 0 else mapping_options[i+1] if i < len(mapping_options)-1 else "Ignore")
+            default = "Source Node" if index == 0 else ("Target Node" if index == 1 else "Ignore")
+            combo.set(default)
             combo.pack(side="left", padx=10)
 
-        # Sample Data Preview
-        ctk.CTkLabel(self, text="Sample Data (first 5 rows)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=20, pady=(10,5))
-        table = ttk.Treeview(self, columns=("Col1", "Col2", "Col3"), show="headings", height=6)
-        for c, w in [("Col1", 120), ("Col2", 120), ("Col3", 120)]:
-            table.heading(c, text=c); table.column(c, width=w)
-        sample = [("3", "5", "1.0"), ("5", "7", "0.5"), ("7", "9", "0.8"), ("9", "11", "0.3"), ("11", "3", "1.2")]
-        for row in sample:
-            table.insert("", "end", values=row)
+        ctk.CTkLabel(
+            self, text="Sample Data (first 5 rows)", font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(anchor="w", padx=20, pady=(10, 5))
+
+        columns = [f"Col{index + 1}" for index in range(max(column_count, 1))]
+        table = ttk.Treeview(self, columns=columns, show="headings", height=6)
+        for column in columns:
+            table.heading(column, text=column)
+            table.column(column, width=120)
+        for row_values in sample_rows:
+            padded = list(row_values[:len(columns)]) + [""] * (len(columns) - len(row_values))
+            table.insert("", "end", values=padded)
         table.pack(padx=20, pady=5)
 
-        # Graph Interpretation Preview
-        ctk.CTkLabel(self, text="Graph Interpretation Preview", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=20, pady=(10,5))
+        ctk.CTkLabel(
+            self, text="Graph Interpretation Preview",
+            font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(anchor="w", padx=20, pady=(10, 5))
         interp = [
-            ("Estimated Nodes", "7,115"),
-            ("Estimated Edges", "103,689"),
-            ("Graph Direction", "Directed"),
-            ("Weight Availability", "Yes (float)"),
+            ("Estimated Nodes", "—"),
+            ("Estimated Edges", f"{line_count:,}".replace(",", ".") if line_count else "—"),
+            ("Graph Direction", "—"),
+            ("Weight Availability", "—"),
         ]
-        for k, v in interp:
+        for key, value in interp:
             row = ctk.CTkFrame(self, fg_color="transparent")
             row.pack(fill="x", padx=20, pady=1)
-            ctk.CTkLabel(row, text=f"{k}:", width=180, anchor="w").pack(side="left")
-            ctk.CTkLabel(row, text=v, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=f"{key}:", width=180, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=value, anchor="w").pack(side="left")
 
-        # Mapping Validation
-        ctk.CTkLabel(self, text="Mapping Validation", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=20, pady=(10,5))
+        ctk.CTkLabel(
+            self, text="Mapping Validation", font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(anchor="w", padx=20, pady=(10, 5))
         checks = [
-            ("Source and Target mapped", True),
-            ("Source/Target not same column", True),
-            ("Weight data type valid", True),
-            ("Required values present", True),
-            ("File not empty", True),
+            ("Source and Target mapped", column_count >= 2),
+            ("Source/Target not same column", column_count >= 2),
+            ("Weight data type valid", False if column_count == 0 else True),
+            ("Required values present", bool(sample_rows)),
+            ("File not empty", line_count > 0),
         ]
         for label, ok in checks:
-            state = "✓" if ok else "✗"
-            color = "#16A34A" if ok else "#DC2626"
+            state = "✓" if ok else "—"
+            color = "#16A34A" if ok else "#64748b"
             ctk.CTkLabel(self, text=f"{state} {label}", text_color=color).pack(anchor="w", padx=40)
 
-        # Actions
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=15)
-        ctk.CTkButton(btn_frame, text="Save Mapping", fg_color="#2563eb").pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="Reset Mapping", fg_color="#64748b").pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="Back", fg_color="#64748b").pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="Continue to Validation", fg_color="#16A34A").pack(side="left", padx=5)
+        ctk.CTkLabel(
+            btn_frame,
+            text="Ánh xạ cột chỉ mang tính xem trước; loader dùng quy ước edge list hiện có.",
+            text_color="#64748b",
+        ).pack()

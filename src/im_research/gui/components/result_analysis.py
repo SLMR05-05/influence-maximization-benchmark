@@ -26,7 +26,7 @@ class ResultAnalysis(ctk.CTkFrame):
         b = ctk.CTkFrame(nb)
         nb.add(b, text="B. Influence Comparison")
         ctk.CTkLabel(b, text="Influence Spread theo k — Chọn dataset + diffusion + thuật toán").pack()
-        ctk.CTkButton(b, text="Generate Chart", command=lambda: messagebox.showinfo("Chart","Generated.")).pack(pady=10)
+        ctk.CTkButton(b, text="Generate Chart", command=lambda: messagebox.showinfo("Chart","Chức năng tạo biểu đồ chưa được triển khai trong component này.")).pack(pady=10)
 
         # Tab C
         c = ctk.CTkFrame(nb)
@@ -37,7 +37,7 @@ class ResultAnalysis(ctk.CTkFrame):
         d = ctk.CTkFrame(nb)
         nb.add(d, text="D. Convergence")
         ctk.CTkLabel(d, text="Trục X: Iterations / Evaluations / Time | Trục Y: Best-so-far Influence Spread").pack()
-        ctk.CTkLabel(d, text="Cho phép đánh giá IGA hội tụ nhanh hơn GA.").pack(pady=5)
+        ctk.CTkLabel(d, text="So sánh đường hội tụ thực tế của IGA và GA.").pack(pady=5)
 
         # Tab E
         e = ctk.CTkFrame(nb)

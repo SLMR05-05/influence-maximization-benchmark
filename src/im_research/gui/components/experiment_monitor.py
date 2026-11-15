@@ -1,6 +1,12 @@
-"""Experiment Monitor — Theo dõi thực nghiệm (CustomTkinter)"""
+"""Experiment Monitor — Hiển thị kết quả thật từ runs/latest_results.json."""
+import json
+from pathlib import Path
+
 import customtkinter as ctk
 from tkinter import ttk
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+
 
 class ExperimentMonitor(ctk.CTkFrame):
     def __init__(self, parent):
@@ -8,16 +14,59 @@ class ExperimentMonitor(ctk.CTkFrame):
         self.build_ui()
 
     def build_ui(self):
-        ctk.CTkLabel(self, text="Experiment Monitor", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=10)
-        table = ttk.Treeview(self, columns=("Algorithm", "Progress", "Completed", "Status", "Time"), show="headings", height=10)
-        for c, w in [("Algorithm", 120), ("Progress", 80), ("Completed", 80), ("Status", 80), ("Time", 100)]:
-            table.heading(c, text=c); table.column(c, width=w)
-        for row in [("Degree","100%","30/30","Completed","12s"),("CELF","100%","30/30","Completed","45s"),("GA","70%","21/30","Running","210s"),("IGA","45%","13/30","Running","180s"),("PSO","0%","0/30","Queued","—")]:
-            table.insert("", "end", values=row)
-        table.pack(padx=20, pady=10, fill="both", expand=True)
-        btns = ctk.CTkFrame(self, fg_color="transparent")
-        btns.pack(pady=10)
-        ctk.CTkButton(btns, text="Retry Failed", fg_color="#D97706").pack(side="left", padx=5)
-        ctk.CTkButton(btns, text="Cancel / Halt", fg_color="#DC2626").pack(side="left", padx=5)
-        ctk.CTkButton(btns, text="Resume (Checkpoint)", fg_color="#2563eb").pack(side="left", padx=5)
-        ctk.CTkLabel(self, text="Checkpoints: Lưu quần thể GA/IGA, trạng thái RNG, lịch sử hội tụ.", text_color="gray").pack(pady=5)
+        ctk.CTkLabel(
+            self, text="Experiment Monitor",
+            font=ctk.CTkFont(size=18, weight="bold")
+        ).pack(pady=10)
+
+        self.table = ttk.Treeview(
+            self, columns=("Algorithm", "Mean Spread", "Std", "Runs", "Time", "Rank"),
+            show="headings", height=10,
+        )
+        for column, width in [
+            ("Algorithm", 140), ("Mean Spread", 100), ("Std", 80),
+            ("Runs", 70), ("Time", 90), ("Rank", 70),
+        ]:
+            self.table.heading(column, text=column)
+            self.table.column(column, width=width)
+        self.table.pack(padx=20, pady=10, fill="both", expand=True)
+
+        self.status = ctk.CTkLabel(self, text="", text_color="gray")
+        self.status.pack(pady=(0, 6))
+        ctk.CTkButton(
+            self, text="Làm mới từ runs/", fg_color="#2563eb", command=self.refresh
+        ).pack(pady=(0, 10))
+        self.refresh()
+
+    def refresh(self):
+        for item in self.table.get_children():
+            self.table.delete(item)
+
+        results_file = PROJECT_ROOT / "runs" / "latest_results.json"
+        if not results_file.exists():
+            self.status.configure(text="Chưa có kết quả thực nghiệm trong runs/.")
+            return
+        try:
+            with open(results_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            self.status.configure(text="Không đọc được runs/latest_results.json.")
+            return
+
+        rows = data.get("summary") or []
+        if not rows:
+            self.status.configure(text="Tệp kết quả không chứa bảng summary.")
+            return
+        for row in rows:
+            self.table.insert("", "end", values=(
+                row.get("algorithm", "—"),
+                f"{row.get('mean_spread', 0.0):.2f}",
+                f"{row.get('std_spread', 0.0):.2f}",
+                data.get("runs", "—"),
+                f"{row.get('mean_time', 0.0):.3f}s",
+                row.get("rank", "—"),
+            ))
+        self.status.configure(
+            text=f"{data.get('dataset', '—')} · k = {data.get('k', '—')} · "
+                 f"MC = {data.get('mc_val', '—')} · {data.get('runs', '—')} lần chạy"
+        )

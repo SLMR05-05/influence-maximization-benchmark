@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Page module."""
+import os
+import queue
+import shlex
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
@@ -13,11 +19,25 @@ from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
 from im_research.gui.core.ui_helpers import section_header, metric_card
 from im_research.core.diffusion_config import get_ic_config
+
+
+def _to_wsl_path(windows_path: Path) -> str:
+    """Converts a Windows path (e.g. D:\\Khanh\\project) to its WSL mount path (/mnt/d/Khanh/project)."""
+    p = Path(windows_path).resolve()
+    drive = p.drive.rstrip(":").lower()
+    if not drive:
+        return p.as_posix()
+    rest = str(p)[len(p.drive):].replace("\\", "/")
+    return f"/mnt/{drive}{rest}"
+
+
 class PageExperiments(ctk.CTkScrollableFrame):
     def __init__(self, master, **kw):
         super().__init__(master, fg_color=BG_APP, **kw)
         self._log_text = None
+        self._log_queue = queue.Queue()
         self._build()
+        self.after(150, self._poll_log_queue)
 
     def _build(self):
         self._ic_config = get_ic_config()
@@ -51,18 +71,22 @@ class PageExperiments(ctk.CTkScrollableFrame):
         )
         self.opt_dataset.grid(row=0, column=1, padx=16, pady=8, sticky="w")
 
-        # Model — fixed to IC (LT is not implemented by the C++ engine)
+        # Model selector (IC or WC)
         make_row("Mô hình lan truyền:", 1)
         model_box = ctk.CTkFrame(form, fg_color="transparent")
         model_box.grid(row=1, column=1, padx=16, pady=8, sticky="w")
-        ctk.CTkLabel(
+        curr_model = self._ic_config.get("model", "IC")
+        self.model_var = ctk.StringVar(value="WC (Weighted Cascade)" if curr_model == "WC" else "IC (Independent Cascade)")
+        self.opt_model = ctk.CTkOptionMenu(
             model_box,
-            text="Independent Cascade (IC)",
-            font=("Segoe UI", 11, "bold"),
-            text_color=GREEN,
-            anchor="w",
-        ).pack(anchor="w")
-        ctk.CTkLabel(
+            variable=self.model_var,
+            width=240,
+            values=["IC (Independent Cascade)", "WC (Weighted Cascade)"],
+            command=self._on_model_change
+        )
+        self.opt_model.pack(anchor="w")
+
+        self.lbl_model_info = ctk.CTkLabel(
             model_box,
             text=(
                 f"p = {self._ic_config['edge_probability']:g}   ·   "
@@ -73,7 +97,8 @@ class PageExperiments(ctk.CTkScrollableFrame):
             font=FONT_SMALL,
             text_color=SUBTEXT_FG,
             anchor="w",
-        ).pack(anchor="w", pady=(2, 0))
+        )
+        self.lbl_model_info.pack(anchor="w", pady=(2, 0))
 
         # Seed set size k
         make_row("Kích thước tập hạt giống (k):", 2)
@@ -106,8 +131,9 @@ class PageExperiments(ctk.CTkScrollableFrame):
 
         self.algo_checks = {}
         algos = [
-            ("celf", "CELF (Greedy)", True),
+            ("iga", "IGA (Đề xuất)", True),
             ("ga", "Baseline GA", True),
+            ("celf", "CELF (Greedy)", True),
             ("degree_discount", "Degree Discount", True),
             ("pagerank", "PageRank", True),
             ("degree", "Degree Centrality", True),
@@ -141,29 +167,60 @@ class PageExperiments(ctk.CTkScrollableFrame):
         self._log_text.pack(fill="x", pady=(0, 16))
         self._log("Hệ thống đã sẵn sàng. Chọn tham số và nhấn Khởi chạy thí nghiệm.")
 
+    def _on_model_change(self, val: str):
+        chosen = "WC" if "WC" in val else "IC"
+        if chosen == "WC":
+            self.lbl_model_info.configure(
+                text=f"Xác suất cạnh: p(u->v) = 1/d_in(v)   ·   R_search = {self._ic_config['mc_search']:,}   ·   R_val = {self._ic_config['mc_validation']:,}"
+            )
+        else:
+            self.lbl_model_info.configure(
+                text=(
+                    f"p = {self._ic_config['edge_probability']:g}   ·   "
+                    f"R_search = {self._ic_config['mc_search']:,}   ·   "
+                    f"R_val = {self._ic_config['mc_validation']:,}   ·   "
+                    f"seed = {self._ic_config['seed_search']}/{self._ic_config['seed_validation']}"
+                )
+            )
+
     def _log(self, text: str):
-        def _do():
-            if self._log_text:
-                ts = datetime.now().strftime("%H:%M:%S")
-                self._log_text.configure(state="normal")
-                self._log_text.insert("end", f"[{ts}] {text}\n")
-                self._log_text.see("end")
-                self._log_text.configure(state="disabled")
-        self.after(0, _do)
+        """Thread-safe: any thread (e.g. the WSL worker) can enqueue a log line."""
+        self._log_queue.put(text)
+
+    def _poll_log_queue(self):
+        """Drains queued log lines on the Tk main thread (scheduled via after())."""
+        try:
+            while True:
+                self._write_log(self._log_queue.get_nowait())
+        except queue.Empty:
+            pass
+        try:
+            self.after(100, self._poll_log_queue)
+        except tk.TclError:
+            pass
+
+    def _write_log(self, text: str):
+        if not self._log_text:
+            return
+        ts = datetime.now().strftime("%H:%M:%S")
+        self._log_text.configure(state="normal")
+        self._log_text.insert("end", f"[{ts}] {text}\n")
+        self._log_text.see("end")
+        self._log_text.configure(state="disabled")
 
     def _execute_experiment(self):
-        import shutil
         wsl_bin = (
             shutil.which("wsl")
             or shutil.which("wsl.exe")
             or r"C:\Windows\System32\wsl.exe"
             or r"C:\Users\LENOVO\AppData\Local\Microsoft\WindowsApps\wsl.exe"
         )
-        if not os.path.exists(wsl_bin) and not shutil.which("wsl"):
+        if not wsl_bin or not os.path.exists(wsl_bin):
             self._log(f"❌ Không tìm thấy trình thực thi WSL tại: {wsl_bin}")
             return
 
         ds = self.ds_var.get()
+        model_choice = "WC" if "WC" in self.model_var.get() else "IC"
         ic = get_ic_config()
         p = ic["edge_probability"]
         seed = ic["seed_search"]
@@ -186,9 +243,8 @@ class PageExperiments(ctk.CTkScrollableFrame):
             self._log("❌ Chưa chọn thuật toán nào để thực thi.")
             return
 
-        clean_ds = ds.split()[0]
         self._log(
-            f"Bắt đầu thí nghiệm: Dataset={ds}, Model=IC, p={p:g}, "
+            f"Bắt đầu thí nghiệm: Dataset={ds}, Model={model_choice}, p={p:g}, "
             f"k={k}, MC_search={mc}, MC_val={mc_val}, Runs={runs}"
         )
         self._log(f"Seed evaluator: search={seed}, validation={seed_val}")
@@ -197,14 +253,17 @@ class PageExperiments(ctk.CTkScrollableFrame):
 
         # Run in thread so GUI doesn't freeze
         import threading
+        project_wsl = _to_wsl_path(PROJECT_ROOT)
+
         def worker():
             algo_args = " ".join(f"--algo {a}" for a in selected)
             bash_script = (
-                "cd '/mnt/d/Khanh/Đồ án chuyên ngành' && "
+                f"cd {shlex.quote(project_wsl)} && "
                 "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; "
                 "else source ~/im_env/bin/activate; fi && "
-                f"python -m im_research.experiments.runner "
-                f"--dataset '{clean_ds}' --model IC --p {p:g} "
+                "export PYTHONUNBUFFERED=1 && "
+                f"python -u -m im_research.experiments.runner "
+                f"--dataset {shlex.quote(ds)} --model {model_choice} --p {p:g} "
                 f"--k {k} --mc {mc} --mc_val {mc_val} --runs {runs} "
                 f"--seed {seed} --seed_val {seed_val} {algo_args}"
             )

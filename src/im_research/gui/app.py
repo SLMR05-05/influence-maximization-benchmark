@@ -53,17 +53,24 @@ class IMApp(ctk.CTk):
 
         self._current_page_key = None
         self._page_widget = None
+        self._page_cache = {}
 
         self._build_layout()
 
     def on_theme_changed(self, mode: str):
-        """Propagate theme changes across all application chrome components."""
+        """Propagate theme changes across all application chrome components and cached pages."""
         if hasattr(self, "status_bar"):
             self.status_bar.update_theme_display(mode)
         if hasattr(self, "sidebar"):
             self.sidebar.update_theme_icon(mode)
         if hasattr(self, "top_header"):
             self.top_header.update_theme_display(mode)
+        for p in self._page_cache.values():
+            if hasattr(p, "on_theme_changed"):
+                try:
+                    p.on_theme_changed(mode)
+                except Exception:
+                    pass
 
     def _build_layout(self):
         # ── Left Navigation Sidebar (236px width) ─────────────────────────────
@@ -101,15 +108,33 @@ class IMApp(ctk.CTk):
     def navigate(self, key: str):
         if key not in self.pages:
             return
+
+        # Map subtab aliases to the base statistics page
+        target_cache_key = "statistics" if key in ("results", "comparison") else key
+        sidebar_key = target_cache_key
+
+        # Hide currently visible page (instantaneous pack_forget, NO destruction)
         if self._page_widget:
-            self._page_widget.destroy()
+            self._page_widget.pack_forget()
 
-        factory = self.pages[key]
-        self._page_widget = factory(self.content_container)
-        self._page_widget.pack(fill="both", expand=True)
+        # Retrieve from cache or lazy-load once
+        if target_cache_key in self._page_cache:
+            page = self._page_cache[target_cache_key]
+        else:
+            factory = self.pages[target_cache_key]
+            page = factory(self.content_container)
+            self._page_cache[target_cache_key] = page
+
+        # If navigating via shortcut to a specific subtab in statistics
+        if key == "results" and hasattr(page, "switch_subtab"):
+            page.switch_subtab("spread")
+        elif key == "comparison" and hasattr(page, "switch_subtab"):
+            page.switch_subtab("overview")
+
+        # Show page instantaneously
+        page.pack(fill="both", expand=True)
+        self._page_widget = page
         self._current_page_key = key
-
-        sidebar_key = "statistics" if key in ("results", "comparison") else key
 
         if hasattr(self, "top_header"):
             self.top_header.set_page(sidebar_key)

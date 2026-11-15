@@ -3,7 +3,7 @@
 Top Application Header Bar for IM-Benchmark-Lab.
 Features:
 - Dynamic Breadcrumb navigation showing current page context.
-- System health & readiness status pills (C++ OpenMP, 5/5 Datasets, Model).
+- System health & readiness status pills (C++ OpenMP, dataset availability, Model).
 - 1-click Quick Theme Switch button (Sun / Moon).
 """
 
@@ -17,7 +17,7 @@ import customtkinter as ctk
 from im_research.gui.core.theme import *
 from im_research.gui.core.tooltip import Tooltip
 from im_research.gui.core.icon_factory import IconSet
-from im_research.core.theme_config import get_theme, set_theme
+from im_research.core.theme_config import get_theme, set_theme, is_dark_mode
 
 PAGE_TITLES = {
     "dashboard":   "Tổng quan nghiên cứu (Dashboard)",
@@ -49,6 +49,12 @@ class TopHeader(ctk.CTkFrame):
         self._build()
 
     def _build(self):
+        raw_dir = PROJECT_ROOT / "data" / "raw"
+        dataset_files = [
+            "karate.txt", "dolphins.txt", "facebook.txt", "nethept.txt", "enron.txt"
+        ]
+        ready_datasets = sum(1 for name in dataset_files if (raw_dir / name).exists())
+
         # ── Left: Breadcrumb Path ─────────────────────────────────────────────
         left_box = ctk.CTkFrame(self, fg_color="transparent")
         left_box.pack(side="left", padx=20, fill="y")
@@ -90,14 +96,14 @@ class TopHeader(ctk.CTkFrame):
         ).pack(padx=10, pady=2)
         Tooltip(p1, "Lõi tính toán C++ OpenMP CSR song song đa luồng")
 
-        # Pill 2: 5/5 Datasets Ready
+        # Pill 2: real dataset availability
         p2 = ctk.CTkFrame(right_box, fg_color=CYAN_PILL_BG, corner_radius=12, height=26)
         p2.pack(side="left", padx=4, pady=13)
         ctk.CTkLabel(
-            p2, text="● 5/5 Datasets (100%)",
+            p2, text=f"● {ready_datasets}/{len(dataset_files)} Datasets",
             font=("Segoe UI", 9, "bold"), text_color=CYAN_PILL_FG
         ).pack(padx=10, pady=2)
-        Tooltip(p2, "Đầy đủ 5 bộ benchmark: Karate, Dolphins, Facebook, NetHEPT, Enron")
+        Tooltip(p2, "Số tệp benchmark hiện có trong data/raw")
 
         # Pill 3: Model IC
         p3 = ctk.CTkFrame(right_box, fg_color=PILL_BG, corner_radius=12, height=26)
@@ -112,8 +118,7 @@ class TopHeader(ctk.CTkFrame):
         ctk.CTkFrame(right_box, width=1, height=22, fg_color=DIVIDER).pack(side="left", padx=8, pady=15)
 
         # Quick Theme Toggle Icon Button
-        curr = get_theme()
-        is_dark = curr == "dark"
+        is_dark = is_dark_mode()
         icon_name = "sun" if is_dark else "moon"
 
         self.theme_btn = ctk.CTkButton(
@@ -137,7 +142,12 @@ class TopHeader(ctk.CTkFrame):
 
     def _on_theme_click(self):
         curr = get_theme()
-        new_mode = "light" if curr == "dark" else "dark"
+        if curr == "dark":
+            new_mode = "light"
+        elif curr == "light":
+            new_mode = "dark"
+        else:
+            new_mode = "light" if is_dark_mode() else "dark"
         set_theme(new_mode)
         ctk.set_appearance_mode(new_mode)
 
@@ -151,7 +161,7 @@ class TopHeader(ctk.CTkFrame):
                 top.on_theme_changed(new_mode)
 
     def update_theme_display(self, mode: str):
-        is_dark = mode == "dark"
+        is_dark = mode == "dark" if mode in ("dark", "light") else is_dark_mode()
         icon_name = "sun" if is_dark else "moon"
         if hasattr(self, "theme_btn"):
             self.theme_btn.configure(

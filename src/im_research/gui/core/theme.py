@@ -2,12 +2,17 @@
 from pathlib import Path
 import sys
 import customtkinter as ctk
-from im_research.core.theme_config import get_theme, set_theme
+from im_research.core.theme_config import get_theme, set_theme, get_font_scale, get_font_scaling_factor
 
 # ── Appearance & Theme ────────────────────────────────────────────────────────
 INITIAL_THEME = get_theme()
 ctk.set_appearance_mode(INITIAL_THEME)
 ctk.set_default_color_theme("blue")
+
+try:
+    ctk.set_widget_scaling(get_font_scaling_factor())
+except Exception:
+    pass
 
 # ── Color Palette (Adaptive Light & Dark Tuples) ──────────────────────────────
 BG_APP         = ("#f8fafc", "#0a0f1d")

@@ -224,7 +224,7 @@ class ImportDatasetModal(ctk.CTkToplevel):
         ).pack(side="right", padx=(8, 0))
 
         self.btn_submit = ctk.CTkButton(
-            btn_box, text="🚀 Phân tích & Lưu bộ dữ liệu", height=34,
+            btn_box, text="Phân tích & Lưu bộ dữ liệu", height=34,
             fg_color=GREEN, hover_color="#059669",
             text_color="#ffffff",
             font=("Segoe UI", 11, "bold"),
@@ -264,7 +264,7 @@ class ImportDatasetModal(ctk.CTkToplevel):
         category = self.cat_var.get()
         source = self.ent_source.get().strip() or "Tải lên từ người dùng"
 
-        self.lbl_status.configure(text="⏳ Đang đọc đồ thị và tính toán các chỉ số topo học (n, m, k, C)...", text_color=BLUE)
+        self.lbl_status.configure(text="Đang đọc đồ thị và tính toán các chỉ số topo học (n, m, k, C)...", text_color=BLUE)
         self.btn_submit.configure(state="disabled")
         self.update_idletasks()
 
@@ -289,7 +289,7 @@ class ImportDatasetModal(ctk.CTkToplevel):
                 self.on_success_callback(cfg["name"])
             self.destroy()
         except Exception as e:
-            self.lbl_status.configure(text=f"❌ Lỗi: {e}", text_color=RED)
+            self.lbl_status.configure(text=f"Lỗi: {e}", text_color=RED)
             self.btn_submit.configure(state="normal")
             messagebox.showerror("Lỗi phân tích đồ thị", f"Không thể phân tích tệp đồ thị:\n{e}", parent=self)
 
@@ -297,7 +297,8 @@ class ImportDatasetModal(ctk.CTkToplevel):
 class PageDatasets(ctk.CTkFrame):
     def __init__(self, master, **kw):
         super().__init__(master, fg_color=BG_APP, corner_radius=0, **kw)
-        self._view_widget = None
+        self._views_cache = {}
+        self._active_view_key = None
         self._build()
 
     def _build(self):
@@ -338,26 +339,44 @@ class PageDatasets(ctk.CTkFrame):
         else:
             self._show_table_view()
 
+    def _switch_view(self, key: str, builder_fn):
+        """Instant zero-delay view swapping with view caching."""
+        if self._active_view_key == key and key in self._views_cache:
+            return self._views_cache[key]
+
+        if self._active_view_key and self._active_view_key in self._views_cache:
+            self._views_cache[self._active_view_key].pack_forget()
+
+        if key in self._views_cache:
+            widget = self._views_cache[key]
+        else:
+            widget = builder_fn()
+            self._views_cache[key] = widget
+
+        widget.pack(fill="both", expand=True)
+        self._active_view_key = key
+        return widget
+
     def _show_ic_config_view(self):
-        if self._view_widget:
-            self._view_widget.destroy()
-        self._view_widget = ICConfigView(self.container)
-        self._view_widget.pack(fill="both", expand=True)
+        self._switch_view("ic_config", lambda: ICConfigView(self.container))
 
     def _show_3d_view(self, select_graph_name: str = None):
-        if self._view_widget:
-            self._view_widget.destroy()
-        self._view_widget = GraphExplorerView(self.container)
-        self._view_widget.pack(fill="both", expand=True)
-        if select_graph_name:
-            self._view_widget.select_dataset(select_graph_name)
+        w = self._switch_view("3d", lambda: GraphExplorerView(self.container))
+        if select_graph_name and hasattr(w, "select_dataset"):
+            w.select_dataset(select_graph_name)
 
-    def _show_table_view(self):
-        if self._view_widget:
-            self._view_widget.destroy()
+    def _show_table_view(self, force_reload: bool = False):
+        if force_reload and "table" in self._views_cache:
+            try:
+                self._views_cache["table"].destroy()
+            except Exception:
+                pass
+            del self._views_cache["table"]
+
+        self._switch_view("table", self._create_table_view)
+
+    def _create_table_view(self):
         scroll = ctk.CTkScrollableFrame(self.container, fg_color=BG_APP)
-        scroll.pack(fill="both", expand=True)
-        self._view_widget = scroll
 
         # Load dynamically from configs/datasets/*.yaml
         datasets = load_all_dataset_configs()
@@ -385,17 +404,17 @@ class PageDatasets(ctk.CTkFrame):
         act_box.pack(side="right", padx=(10, 0))
 
         btn_reload = ctk.CTkButton(
-            act_box, text="🔄 Làm mới", width=100, height=32,
+            act_box, text="Làm mới", width=100, height=32,
             font=("Segoe UI", 11, "bold"),
             fg_color=("#e2e8f0", "#1e293b"),
             hover_color=("#cbd5e1", "#334155"),
             text_color=("#0f172a", "#f8fafc"),
-            command=self._show_table_view
+            command=lambda: self._show_table_view(force_reload=True)
         )
         btn_reload.pack(side="left", padx=4)
 
         btn_add = ctk.CTkButton(
-            act_box, text="➕ Thêm bộ dữ liệu mới", width=180, height=32,
+            act_box, text="+ Thêm bộ dữ liệu mới", width=180, height=32,
             font=("Segoe UI", 11, "bold"),
             fg_color=GREEN, hover_color="#059669",
             text_color="#ffffff",
@@ -499,8 +518,8 @@ class PageDatasets(ctk.CTkFrame):
             # Delete button for non-protected custom datasets
             if not ds.get("is_protected", False):
                 btn_del = ctk.CTkButton(
-                    act_col, text="🗑️", width=28, height=28,
-                    font=("Segoe UI", 10), fg_color="#ef4444", hover_color="#dc2626",
+                    act_col, text="Xóa", width=42, height=28,
+                    font=("Segoe UI", 10, "bold"), fg_color="#ef4444", hover_color="#dc2626",
                     text_color="#ffffff", corner_radius=6,
                     command=lambda ident=ds.get("identifier", ds["name"].lower()), name=ds["name"]: self._confirm_delete(ident, name)
                 )
@@ -529,18 +548,24 @@ class PageDatasets(ctk.CTkFrame):
             line_txt = f"• {ds['name']}: {raw_p} ({status_text})"
             ctk.CTkLabel(b_inner, text=line_txt, font=("Consolas", 10), text_color=color, anchor="w").pack(anchor="w", padx=10, pady=2)
 
+        return scroll
+
     def _open_import_dialog(self):
         ImportDatasetModal(self, on_success_callback=lambda new_name: self._on_dataset_imported(new_name))
 
     def _on_dataset_imported(self, new_name: str):
-        self._show_table_view()
+        if "3d" in self._views_cache and hasattr(self._views_cache["3d"], "refresh_dataset_options"):
+            self._views_cache["3d"].refresh_dataset_options()
+        self._show_table_view(force_reload=True)
 
     def _confirm_delete(self, identifier: str, name: str):
         if messagebox.askyesno("Xác nhận xóa", f"Bạn có chắc muốn xóa bộ dữ liệu '{name}' khỏi hệ thống?", parent=self):
             try:
                 delete_dataset_config(identifier)
+                if "3d" in self._views_cache and hasattr(self._views_cache["3d"], "refresh_dataset_options"):
+                    self._views_cache["3d"].refresh_dataset_options()
                 messagebox.showinfo("Thành công", f"Đã xóa cấu hình bộ dữ liệu '{name}'.", parent=self)
-                self._show_table_view()
+                self._show_table_view(force_reload=True)
             except Exception as e:
                 messagebox.showerror("Lỗi", f"Không thể xóa bộ dữ liệu: {e}", parent=self)
 

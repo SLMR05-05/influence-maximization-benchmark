@@ -56,6 +56,7 @@ class PageRankHeuristic(BaseAlgorithm):
                     in_neighbors[v].append((u, out_degree[u]))
 
         # Power Iteration
+        print(f"      [PageRank] Đang tính toán PageRank toàn đồ thị (Power Iteration, max_iter={self.max_iter})...", flush=True)
         pr = [1.0 / n] * n
         base_score = (1.0 - d) / n
 
@@ -76,6 +77,7 @@ class PageRankHeuristic(BaseAlgorithm):
         ranked = sorted(range(n), key=lambda u: pr[u], reverse=True)
         seed_set = sorted(ranked[:k])
         solution = Solution(seed_set)
+        print(f"      [PageRank] Hoàn tất sau {iteration+1} vòng lặp! Top {k} hạt giống: {seed_set[:min(k, 8)]}...", flush=True)
 
         t_search_end = time.perf_counter()
         fitness = problem.fitness(solution)
