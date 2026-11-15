@@ -32,6 +32,7 @@ from im_research.core.theme_config import is_dark_mode
 from im_research.core.statistics_data import (
     get_available_datasets,
     get_available_k_values,
+    get_available_models,
     get_latest_run_selection,
     get_performance_summary,
     get_spread_vs_k_data,
@@ -70,6 +71,15 @@ def _short_name(name: str) -> str:
     return str(name).split()[0] if name else ""
 
 
+def _display(value: Any, digits: int = 2) -> str:
+    """Renders a recorded value, using an em dash when it is missing."""
+    if value is None:
+        return "—"
+    if isinstance(value, float):
+        return f"{value:.{digits}f}"
+    return str(value)
+
+
 class PageStatistics(ctk.CTkFrame):
     """Unified Statistics & Performance Comparison Hub."""
 
@@ -78,16 +88,21 @@ class PageStatistics(ctk.CTkFrame):
         self.on_switch_tab = on_switch_tab
         self._current_subtab = initial_subtab
 
-        # State filters (seeded from the most recent real run)
-        latest = get_latest_run_selection("IC")
-        available = get_available_datasets("IC")
-        if latest and latest.get("dataset"):
-            self.current_dataset = latest["dataset"]
-            self.current_model = latest.get("model") or "IC"
+        # State filters (seeded from the most recent real run, any model)
+        latest = get_latest_run_selection()
+        models = get_available_models()
+        if latest and latest.get("model"):
+            self.current_model = latest["model"]
+            self.current_dataset = latest.get("dataset") or ""
             self.current_k = latest.get("k") or 0
-        else:
+        elif models:
+            self.current_model = models[0]
+            available = get_available_datasets(self.current_model)
             self.current_dataset = available[0] if available else ""
-            self.current_model = "IC"
+            self.current_k = 0
+        else:
+            self.current_model = ""
+            self.current_dataset = ""
             self.current_k = 0
         available_k = get_available_k_values(self.current_dataset, self.current_model) \
             if self.current_dataset else []
@@ -131,6 +146,23 @@ class PageStatistics(ctk.CTkFrame):
         if k_values and self.current_k not in k_values:
             self.current_k = k_values[0]
         return datasets, k_values
+
+    def _on_model_change(self, model: str):
+        """Switches to a propagation model that actually has recorded runs."""
+        self.current_model = model
+        latest = get_latest_run_selection(model)
+        if latest:
+            self.current_dataset = latest.get("dataset") or ""
+            self.current_k = latest.get("k") or 0
+        else:
+            datasets = get_available_datasets(model)
+            self.current_dataset = datasets[0] if datasets else ""
+            self.current_k = 0
+        k_values = get_available_k_values(self.current_dataset, model) \
+            if self.current_dataset else []
+        if self.current_k not in k_values:
+            self.current_k = k_values[-1] if k_values else 0
+        self.switch_subtab(self._current_subtab)
 
     # ═════════════════════════════════════════════════════════════════════════
     #  HEADER & 5-TAB NAVIGATION BAR
@@ -226,6 +258,16 @@ class PageStatistics(ctk.CTkFrame):
             pady=36,
         )
 
+    def _model_selector(self, parent, values: List[str], on_change):
+        ctk.CTkLabel(
+            parent, text="Mô hình:", font=("Segoe UI", 10, "bold"), text_color=SUBTEXT_FG
+        ).pack(side="left", padx=(0, 6))
+        current = self.current_model if self.current_model in values else (values[0] if values else "")
+        combo = ctk.CTkComboBox(parent, values=values or [current], width=140, command=on_change)
+        combo.set(current)
+        combo.pack(side="left", padx=(0, 14))
+        return combo
+
     def _dataset_selector(self, parent, values: List[str], on_change):
         ctk.CTkLabel(
             parent, text="Bộ dữ liệu:", font=("Segoe UI", 10, "bold"), text_color=SUBTEXT_FG
@@ -284,6 +326,7 @@ class PageStatistics(ctk.CTkFrame):
         f_row = ctk.CTkFrame(filter_card, fg_color="transparent")
         f_row.pack(fill="x", padx=14, pady=10)
 
+        self._model_selector(f_row, get_available_models(), self._on_model_change)
         self._dataset_selector(f_row, datasets, self._on_tab_a_dataset_change)
         self._k_selector(f_row, k_values, lambda v: self._on_tab_a_k_change(int(v.replace("k = ", ""))))
 
@@ -312,18 +355,45 @@ class PageStatistics(ctk.CTkFrame):
             )
             return
 
-        iga_row = next((r for r in summary_rows if r["code"] == "iga"), None)
-        ga_row = next((r for r in summary_rows if r["code"] == "ga"), None)
-        celf_row = next((r for r in summary_rows if r["code"] == "celf"), None)
-        top_row = iga_row or summary_rows[0]
+        top_row = summary_rows[0]
+        runner_up = summary_rows[1] if len(summary_rows) > 1 else None
 
-        pct_over_ga = None
-        if iga_row and ga_row and ga_row["mean_spread"] > 0:
-            pct_over_ga = (iga_row["mean_spread"] - ga_row["mean_spread"]) / ga_row["mean_spread"] * 100
+        pct_over_runner_up = None
+        if (
+            runner_up
+            and top_row["mean_spread"] is not None
+            and runner_up["mean_spread"] not in (None, 0)
+        ):
+            pct_over_runner_up = (
+                (top_row["mean_spread"] - runner_up["mean_spread"])
+                / runner_up["mean_spread"] * 100
+            )
 
-        speedup_celf = None
-        if iga_row and celf_row and iga_row["time_total_num"] > 0:
-            speedup_celf = celf_row["time_total_num"] / iga_row["time_total_num"]
+        fastest_row = min(
+            (
+                row for row in summary_rows
+                if row["time_mean_num"] is not None and row["time_mean_num"] > 0
+            ),
+            key=lambda row: row["time_mean_num"],
+            default=None,
+        )
+        time_ratio = None
+        if (
+            fastest_row
+            and top_row["time_mean_num"] is not None
+            and fastest_row["time_mean_num"] > 0
+        ):
+            time_ratio = top_row["time_mean_num"] / fastest_row["time_mean_num"]
+
+        top_name = _short_name(top_row["algorithm"])
+        mean_value = "—" if top_row["mean_spread"] is None else f"{top_row['mean_spread']}"
+        if top_row["std_spread"] is not None:
+            mean_value += f" ± {top_row['std_spread']}"
+        median_value = (
+            f"Trung vị: {top_row['median_spread']} ({top_row['runs']} runs)"
+            if top_row["median_spread"] is not None
+            else f"Không đủ mẫu để tính trung vị ({top_row['runs']} runs)"
+        )
 
         m_grid = ctk.CTkFrame(scroll, fg_color="transparent")
         m_grid.pack(fill="x", pady=(0, 12))
@@ -331,27 +401,35 @@ class PageStatistics(ctk.CTkFrame):
             m_grid.columnconfigure(column, weight=1)
 
         metric_card(
-            m_grid, f"Best Spread ({_short_name(top_row['algorithm'])})",
-            f"{top_row['best_spread']}",
+            m_grid, f"Best Spread ({top_name})",
+            "—" if top_row["best_spread"] is None else f"{top_row['best_spread']}",
             f"Giá trị cao nhất trong {top_row['runs']} lần chạy (k={self.current_k})",
             RED, 0, 0,
         )
         metric_card(
-            m_grid, f"Mean Spread ({_short_name(top_row['algorithm'])})",
-            f"{top_row['mean_spread']} ± {top_row['std_spread']}",
-            f"Trung vị: {top_row['median_spread']} ({top_row['runs']} runs)",
+            m_grid, f"Mean Spread ({top_name})",
+            mean_value,
+            median_value,
             BLUE, 1, 0,
         )
         metric_card(
-            m_grid, "So với GA (Mean)",
-            f"{pct_over_ga:+.1f}%" if pct_over_ga is not None else "—",
-            "Chênh lệch Mean Spread so với Baseline GA" if pct_over_ga is not None else "Chưa có dữ liệu GA",
+            m_grid, f"So với {_short_name(runner_up['algorithm'])}" if runner_up else "So với hạng 2",
+            f"{pct_over_runner_up:+.1f}%" if pct_over_runner_up is not None else "—",
+            (
+                f"Chênh lệch Mean Spread: {top_row['mean_spread']} vs {runner_up['mean_spread']}"
+                if pct_over_runner_up is not None
+                else "Cần ít nhất 2 thuật toán có Mean Spread"
+            ),
             GREEN, 2, 0,
         )
         metric_card(
-            m_grid, "Tốc độ vs CELF",
-            f"{speedup_celf:.2f}x" if speedup_celf is not None else "—",
-            "Tỉ lệ tổng thời gian CELF / IGA" if speedup_celf is not None else "Chưa có dữ liệu CELF hoặc IGA",
+            m_grid, "Thời gian hạng 1 / nhanh nhất",
+            f"{time_ratio:.2f}x" if time_ratio is not None else "—",
+            (
+                f"{top_name} chia cho {_short_name(fastest_row['algorithm'])}"
+                if time_ratio is not None
+                else "Chưa đủ dữ liệu thời gian"
+            ),
             PURPLE, 3, 0,
         )
 
@@ -365,7 +443,8 @@ class PageStatistics(ctk.CTkFrame):
         ctk.CTkLabel(
             b_content,
             text="Mean / Median / Std và khoảng tin cậy 95% được tính trực tiếp từ các lần chạy độc lập ghi trong runs/. "
-                 "Best Spread chỉ là giá trị cao nhất của một lần chạy nên không phản ánh độ ổn định của thuật toán.",
+                 "Best Spread chỉ là giá trị cao nhất của một lần chạy nên không phản ánh độ ổn định của thuật toán. "
+                 "Trang không dùng điểm tổng hợp/CPI hay giá trị mặc định cho chỉ số bị thiếu.",
             font=("Segoe UI", 9),
             text_color=HEADER_FG,
             wraplength=1000,
@@ -386,8 +465,8 @@ class PageStatistics(ctk.CTkFrame):
             ("Median", 85),
             ("Std (σ)", 80),
             ("95% CI", 85),
-            ("Runs", 70),
-            ("Total Time", 95),
+            ("Số mẫu", 70),
+            ("Time TB", 95),
             ("Hạng", 60),
         ]
         for text, width in headers:
@@ -405,13 +484,13 @@ class PageStatistics(ctk.CTkFrame):
             star = " ★ " if is_iga else "   "
             cols_val = [
                 (f"{star}{row['algorithm']}", 190, name_color, ("Segoe UI", 9, "bold" if is_iga else "normal")),
-                (f"{row['best_spread']}", 95, HEADER_FG, ("Consolas", 9, "bold")),
-                (f"{row['mean_spread']}", 100, BLUE if is_iga else HEADER_FG, ("Consolas", 9, "bold")),
-                (f"{row['median_spread']}", 85, SUBTEXT_FG, ("Consolas", 9)),
-                (f"{row['std_spread']}", 80, RED if row["std_spread"] > 0 else GREEN, ("Consolas", 9)),
-                (f"{row['ci_95']}", 85, SUBTEXT_FG, ("Consolas", 8)),
-                (f"{row['runs']}", 70, SUBTEXT_FG, ("Consolas", 9)),
-                (f"{row['time_total']}", 95, PURPLE if is_iga else HEADER_FG, ("Consolas", 9, "bold")),
+                (_display(row["best_spread"]), 95, HEADER_FG, ("Consolas", 9, "bold")),
+                (_display(row["mean_spread"]), 100, BLUE if is_iga else HEADER_FG, ("Consolas", 9, "bold")),
+                (_display(row["median_spread"]), 85, SUBTEXT_FG, ("Consolas", 9)),
+                (_display(row["std_spread"]), 80, RED if (row["std_spread"] or 0) > 0 else GREEN, ("Consolas", 9)),
+                (row["ci_95"], 85, SUBTEXT_FG, ("Consolas", 8)),
+                (_display(row["runs"]), 70, SUBTEXT_FG, ("Consolas", 9)),
+                (row["time_mean"], 95, PURPLE if is_iga else HEADER_FG, ("Consolas", 9, "bold")),
                 (f"#{row['rank']}", 60, GREEN if row["rank"] == 1 else SUBTEXT_FG, ("Segoe UI", 9, "bold")),
             ]
             for value, width, column_color, font in cols_val:
@@ -455,6 +534,7 @@ class PageStatistics(ctk.CTkFrame):
         f_row = ctk.CTkFrame(filter_card, fg_color="transparent")
         f_row.pack(fill="x", padx=14, pady=10)
 
+        self._model_selector(f_row, get_available_models(), self._on_model_change)
         self._dataset_selector(f_row, datasets, lambda v: self._refresh_tab_b(ds=v))
 
         _, k_values = self._sync_selection()
@@ -507,11 +587,21 @@ class PageStatistics(ctk.CTkFrame):
             curve = data["curves"][code]
             x_values = curve.get("k_list") or data["k_list"]
             values = curve["medians"] if use_median else curve["means"]
+            errors = curve["errors"]
+            if use_median:
+                points = [
+                    (x_value, value, error)
+                    for x_value, value, error in zip(x_values, values, errors)
+                    if value is not None
+                ]
+                if not points:
+                    continue
+                x_values, values, errors = zip(*points)
             linewidth = 2.4 if code == "iga" else 1.4
             alpha = 1.0 if code == "iga" else 0.85
-            if show_errors and any(error > 0 for error in curve["errors"]):
+            if show_errors and any(error > 0 for error in errors):
                 ax1.errorbar(
-                    x_values, values, yerr=curve["errors"], label=curve["name"],
+                    x_values, values, yerr=errors, label=curve["name"],
                     color=curve["color"], marker=markers[index % len(markers)],
                     markersize=5, linewidth=linewidth, capsize=3, alpha=alpha,
                 )
@@ -598,6 +688,7 @@ class PageStatistics(ctk.CTkFrame):
         f_row = ctk.CTkFrame(filter_card, fg_color="transparent")
         f_row.pack(fill="x", padx=14, pady=10)
 
+        self._model_selector(f_row, get_available_models(), self._on_model_change)
         self._dataset_selector(f_row, datasets, lambda v: self._refresh_tab_c(ds=v))
         _, k_values = self._sync_selection()
         self._k_selector(f_row, k_values, lambda v: self._refresh_tab_c(k=int(v.replace("k = ", ""))))
@@ -622,18 +713,27 @@ class PageStatistics(ctk.CTkFrame):
         ax1 = fig.add_subplot(121)
         ax2 = fig.add_subplot(122)
 
-        stages = data["stages"]
+        stages = [
+            stage for stage in data["stages"] if stage["mean_time"] is not None
+        ]
+        if not stages:
+            card = ctk.CTkFrame(scroll, fg_color=CARD_BG, corner_radius=10,
+                                border_width=1, border_color=BORDER_COLOR)
+            card.pack(fill="x", pady=(0, 14))
+            self._empty_state(card, f"Lần chạy này không ghi thời gian thực thi cho {self.current_dataset}.")
+            return
+
         names = [_short_name(stage["algorithm"]) for stage in stages]
-        totals = [stage["total"] for stage in stages]
+        mean_times = [stage["mean_time"] for stage in stages]
         positions = list(range(len(stages)))
-        bars = ax1.barh(positions, totals, color=[stage["color"] for stage in stages], alpha=0.85)
+        bars = ax1.barh(positions, mean_times, color=[stage["color"] for stage in stages], alpha=0.85)
         ax1.set_yticks(positions)
         ax1.set_yticklabels(names, fontsize=9)
-        ax1.set_xlabel("Thời gian thực thi (giây)", fontsize=9)
-        ax1.set_title(f"Tổng thời gian thực thi ({self.current_dataset}, k = {self.current_k})",
+        ax1.set_xlabel("Thời gian thực thi trung bình (giây)", fontsize=9)
+        ax1.set_title(f"Thời gian thực thi trung bình ({self.current_dataset}, k = {self.current_k})",
                       fontsize=10, fontweight="bold")
         ax1.invert_yaxis()
-        for bar, value in zip(bars, totals):
+        for bar, value in zip(bars, mean_times):
             ax1.text(bar.get_width(), bar.get_y() + bar.get_height() / 2,
                      f" {value:.3f}s", va="center", fontsize=8)
 
@@ -655,7 +755,7 @@ class PageStatistics(ctk.CTkFrame):
 
             ax2.set_title("Thời gian theo Seed Budget k", fontsize=10, fontweight="bold")
             ax2.set_xlabel("Seed Budget k", fontsize=9)
-            ax2.set_ylabel("Tổng Runtime (giây)", fontsize=9)
+            ax2.set_ylabel("Runtime trung bình (giây)", fontsize=9)
             if has_runtime_curve:
                 ax2.legend(fontsize=8, loc="upper left", framealpha=0.6)
             else:
@@ -682,12 +782,15 @@ class PageStatistics(ctk.CTkFrame):
 
         t_head = ctk.CTkFrame(table_card, fg_color=("#f1f5f9", "#1e293b"), corner_radius=6)
         t_head.pack(fill="x", padx=10, pady=(4, 4))
-        for text, width in [("Thuật toán", 190), ("Tổng thời gian", 140),
+        for text, width in [("Thuật toán", 190), ("Thời gian TB", 140),
                             ("Số lần chạy", 120), ("So với nhanh nhất", 160)]:
             ctk.CTkLabel(t_head, text=text, font=("Segoe UI", 9, "bold"), text_color=HEADER_FG,
                          width=width, anchor="w").pack(side="left", padx=6, pady=6)
 
-        fastest = min((stage["total"] for stage in stages if stage["total"] > 0), default=0.0)
+        fastest = min(
+            (stage["mean_time"] for stage in stages if stage["mean_time"] > 0),
+            default=0.0,
+        )
         for idx, stage in enumerate(stages):
             is_iga = stage["code"] == "iga"
             row_bg = ("#fee2e2", "#311015") if (is_iga and self.highlight_iga) else \
@@ -695,14 +798,14 @@ class PageStatistics(ctk.CTkFrame):
             r_frame = ctk.CTkFrame(table_card, fg_color=row_bg, corner_radius=4)
             r_frame.pack(fill="x", padx=10, pady=2)
 
-            if fastest > 0 and stage["total"] > 0:
-                relative = f"{stage['total'] / fastest:.2f}x"
+            if fastest > 0 and stage["mean_time"] > 0:
+                relative = f"{stage['mean_time'] / fastest:.2f}x"
             else:
                 relative = "—"
             cols = [
                 (stage["algorithm"], 190, RED if is_iga else stage["color"],
                  ("Segoe UI", 9, "bold" if is_iga else "normal")),
-                (f"{stage['total']:.4f}s", 140, PURPLE if is_iga else HEADER_FG, ("Consolas", 9, "bold")),
+                (f"{stage['mean_time']:.4f}s", 140, PURPLE if is_iga else HEADER_FG, ("Consolas", 9, "bold")),
                 (str(stage["runs"]), 120, SUBTEXT_FG, ("Consolas", 9)),
                 (relative, 160, GREEN if is_iga else SUBTEXT_FG, ("Segoe UI", 9)),
             ]
@@ -739,6 +842,7 @@ class PageStatistics(ctk.CTkFrame):
         f_row = ctk.CTkFrame(filter_card, fg_color="transparent")
         f_row.pack(fill="x", padx=14, pady=10)
 
+        self._model_selector(f_row, get_available_models(), self._on_model_change)
         self._dataset_selector(f_row, datasets, lambda v: self._refresh_tab_d(ds=v))
         _, k_values = self._sync_selection()
         self._k_selector(f_row, k_values, lambda v: self._refresh_tab_d(k=int(v.replace("k = ", ""))))
@@ -816,7 +920,7 @@ class PageStatistics(ctk.CTkFrame):
         th.pack(fill="x", padx=10, pady=(4, 4))
         for text, width in [("Thuật toán", 180), ("Mean Spread (kiểm định)", 160),
                             ("Thế hệ đạt 90% đỉnh", 160), ("Thế hệ đạt 98% đỉnh", 160),
-                            ("Tổng Evaluations", 150)]:
+                            ("Evaluations TB", 150)]:
             ctk.CTkLabel(th, text=text, font=("Segoe UI", 9, "bold"), text_color=HEADER_FG,
                          width=width, anchor="w").pack(side="left", padx=6, pady=6)
 
@@ -829,12 +933,17 @@ class PageStatistics(ctk.CTkFrame):
 
             values = [
                 (series["name"], 180, RED if is_iga else series["color"]),
-                (f"{series['final']:.2f}", 160, HEADER_FG),
+                (_display(series["final"]), 160, HEADER_FG),
                 (f"Thế hệ {series['gen_90']}" if series["gen_90"] is not None else "—",
                  160, GREEN if is_iga else SUBTEXT_FG),
                 (f"Thế hệ {series['gen_98']}" if series["gen_98"] is not None else "—",
                  160, HEADER_FG),
-                (f"{series['total_evaluations']:,}".replace(",", "."), 150, SUBTEXT_FG),
+                (
+                    f"{series['total_evaluations']:,}".replace(",", ".")
+                    if series["total_evaluations"] is not None else "—",
+                    150,
+                    SUBTEXT_FG,
+                ),
             ]
             for value, width, color in values:
                 ctk.CTkLabel(rf, text=value, font=("Segoe UI", 9, "bold" if is_iga else "normal"),
@@ -873,6 +982,7 @@ class PageStatistics(ctk.CTkFrame):
         f_row = ctk.CTkFrame(filter_card, fg_color="transparent")
         f_row.pack(fill="x", padx=14, pady=10)
 
+        self._model_selector(f_row, get_available_models(), self._on_model_change)
         self._dataset_selector(f_row, datasets, lambda v: self._refresh_tab_e(ds=v))
         self._k_selector(f_row, k_values, lambda v: self._refresh_tab_e(k=int(v.replace("k = ", ""))))
         self._export_button(f_row, "📥 Xuất Seed Nodes CSV", "seed_set")
@@ -896,13 +1006,33 @@ class PageStatistics(ctk.CTkFrame):
             j_grid.columnconfigure(column, weight=1)
 
         metric_card(j_grid, "Jaccard Similarity J(A,B)", s_data["jaccard_pct"],
-                    f"Trung bình trên {s_data['paired_runs']} cặp lần chạy", PURPLE, 0, 0)
-        metric_card(j_grid, "Đỉnh chung (A ∩ B)", f"{s_data['shared_count']:.1f} / {self.current_k}",
-                    "Số đỉnh trung bình cả hai cùng chọn", GREEN, 1, 0)
-        metric_card(j_grid, f"Đỉnh {name_a} độc nhất", f"{s_data['unique_iga_count']:.1f}",
-                    "Số đỉnh trung bình chỉ thuật toán này chọn", RED, 2, 0)
-        metric_card(j_grid, f"Đỉnh {name_b} độc nhất", f"{s_data['unique_ga_count']:.1f}",
-                    "Số đỉnh trung bình chỉ thuật toán này chọn", BLUE, 3, 0)
+                    (f"Trung bình trên {s_data['paired_runs']} cặp lần chạy"
+                     if s_data["paired_runs"] else "Không có cặp lần chạy để so sánh"),
+                    PURPLE, 0, 0)
+        metric_card(
+            j_grid, "Đỉnh chung (A ∩ B)",
+            (f"{s_data['shared_count']:.1f} / {self.current_k}"
+             if s_data["shared_count"] is not None else "—"),
+            ("Số đỉnh trung bình cả hai cùng chọn"
+             if s_data["shared_count"] is not None else "Cần dữ liệu của hai thuật toán"),
+            GREEN, 1, 0,
+        )
+        metric_card(
+            j_grid, f"Đỉnh {name_a} độc nhất",
+            (f"{s_data['unique_a_count']:.1f}"
+             if s_data["unique_a_count"] is not None else "—"),
+            ("Số đỉnh trung bình chỉ thuật toán này chọn"
+             if s_data["unique_a_count"] is not None else "Cần thuật toán thứ hai để đối chiếu"),
+            RED, 2, 0,
+        )
+        metric_card(
+            j_grid, f"Đỉnh {name_b} độc nhất",
+            (f"{s_data['unique_b_count']:.1f}"
+             if s_data["unique_b_count"] is not None else "—"),
+            ("Số đỉnh trung bình chỉ thuật toán này chọn"
+             if s_data["unique_b_count"] is not None else "Cần thuật toán thứ hai để đối chiếu"),
+            BLUE, 3, 0,
+        )
 
         insight_box = ctk.CTkFrame(scroll, fg_color=("#eff6ff", "#0f172a"), corner_radius=8,
                                    border_width=1, border_color=("#bfdbfe", "#1e3a8a"))
@@ -929,7 +1059,7 @@ class PageStatistics(ctk.CTkFrame):
             left_box, text=f"★ {s_data['algorithm_a']} (k = {self.current_k}):",
             font=("Segoe UI", 10, "bold"), text_color=RED
         ).pack(anchor="w", padx=12, pady=(10, 6))
-        self._render_seed_nodes_table(left_box, s_data["nodes_iga"], is_iga=True)
+        self._render_seed_nodes_table(left_box, s_data["nodes_a"], is_iga=True)
 
         right_box = ctk.CTkFrame(cols_container, fg_color=CARD_BG, corner_radius=10,
                                  border_width=1, border_color=BORDER_COLOR)
@@ -938,7 +1068,7 @@ class PageStatistics(ctk.CTkFrame):
             right_box, text=f"{s_data['algorithm_b']} (k = {self.current_k}):",
             font=("Segoe UI", 10, "bold"), text_color=BLUE
         ).pack(anchor="w", padx=12, pady=(10, 6))
-        self._render_seed_nodes_table(right_box, s_data["nodes_ga"], is_iga=False)
+        self._render_seed_nodes_table(right_box, s_data["nodes_b"], is_iga=False)
 
     def _render_seed_nodes_table(self, parent: ctk.CTkFrame, nodes: List[Dict[str, Any]], is_iga: bool):
         th = ctk.CTkFrame(parent, fg_color=("#f1f5f9", "#1e293b"), corner_radius=6)
@@ -957,8 +1087,15 @@ class PageStatistics(ctk.CTkFrame):
             row.pack(fill="x", padx=10, pady=2)
 
             is_shared = node["is_shared"]
-            status_text = "● Trùng lặp" if is_shared else ("★ Độc nhất" if is_iga else "○ Độc nhất")
-            status_color = GREEN if is_shared else (RED if is_iga else BLUE)
+            if is_shared is None:
+                status_text = "— Chưa đối chiếu"
+                status_color = SUBTEXT_FG
+            elif is_shared:
+                status_text = "● Trùng lặp"
+                status_color = GREEN
+            else:
+                status_text = "★ Độc nhất" if is_iga else "○ Độc nhất"
+                status_color = RED if is_iga else BLUE
 
             values = [
                 (f"Node #{node['node_id']}", 100, RED if is_iga else BLUE),

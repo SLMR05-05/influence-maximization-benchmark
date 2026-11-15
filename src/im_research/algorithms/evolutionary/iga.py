@@ -95,6 +95,8 @@ class IGA(BaseAlgorithm):
         enable_degree_guided_mutation: bool = True,
         enable_local_search: bool = True,
         enable_overlap_filtering: bool = True,
+        log_callback: Any = None,
+        progress_callback: Any = None,
     ):
         super().__init__(name="IGA")
         self.pop_size = pop_size
@@ -113,6 +115,8 @@ class IGA(BaseAlgorithm):
         self.lambda_tour = lambda_tour
         self.local_search_steps = local_search_steps
         self.r_final = r_final
+        self.log_callback = log_callback
+        self.progress_callback = progress_callback
 
         # Ablation study toggles
         self.enable_guided_init = enable_guided_init
@@ -123,6 +127,15 @@ class IGA(BaseAlgorithm):
 
         # Internal caches for topology
         self._adj_cache: Dict[int, Set[int]] = {}
+
+    def _log(self, msg: str) -> None:
+        """Outputs log to stdout and forwards to optional GUI log_callback."""
+        print(f"      [IGA] {msg}", flush=True)
+        if self.log_callback is not None:
+            try:
+                self.log_callback(f"[IGA] {msg}")
+            except Exception:
+                pass
 
     # ═════════════════════════════════════════════════════════════════════════
     #  PHA 1: TIỀN XỬ LÝ ĐỒ THỊ VÀ TRÍCH XUẤT TRI THỨC TOPO
@@ -568,7 +581,7 @@ class IGA(BaseAlgorithm):
         edge_probs = list(problem.graph.edge_probs())
 
         # ── Pha 1: Tiền xử lý đồ thị & trích xuất tri thức topo ─────────────────
-        print(f"      [IGA] Pha 1: Đang trích xuất tri thức topo (Louvain & PageRank)...", flush=True)
+        self._log("Pha 1: Đang trích xuất tri thức topo (Louvain & PageRank)...")
         (
             communities,
             k_quotas,
@@ -577,15 +590,13 @@ class IGA(BaseAlgorithm):
             boundary_nodes,
             g_nx,
         ) = self._preprocess_topology(problem, seed)
-        print(
-            f"      [IGA] Pha 1: Phân hoạch {len(communities)} cộng đồng; Hạn ngạch phần dư lớn nhất: {k_quotas[:min(5, len(k_quotas))]}... (Tổng k = {sum(k_quotas)})",
-            flush=True,
+        self._log(
+            f"Pha 1: Phân hoạch {len(communities)} cộng đồng; Hạn ngạch phần dư lớn nhất: {k_quotas[:min(5, len(k_quotas))]}... (Tổng k = {sum(k_quotas)})"
         )
 
         # ── Pha 2: Khởi tạo quần thể định hướng IGA thế hệ t = 0 ──────────────
-        print(
-            f"      [IGA] Pha 2: Khởi tạo quần thể N={self.pop_size} (80% Topo-guided, 20% Random) & đánh giá hàm LIE-2 ban đầu...",
-            flush=True,
+        self._log(
+            f"Pha 2: Khởi tạo quần thể N={self.pop_size} (80% Topo-guided, 20% Random) & đánh giá hàm LIE-2 ban đầu..."
         )
         pop = self._create_initial_population(
             problem,
@@ -603,9 +614,8 @@ class IGA(BaseAlgorithm):
         c_best_lie = Solution(list(best_ever.seed_set), fitness=best_ever.fitness)
         stagnation_count = 0
         current_diversity = pop.diversity_jaccard()
-        print(
-            f"      [IGA] Pha 2: Hoàn tất t=0 | Nghiệm tốt nhất f_LIE = {c_best_lie.fitness:.2f} | Đa dạng Jaccard = {current_diversity:.3f}",
-            flush=True,
+        self._log(
+            f"Pha 2: Hoàn tất t=0 | Nghiệm tốt nhất f_LIE = {c_best_lie.fitness:.2f} | Đa dạng Jaccard = {current_diversity:.3f}"
         )
 
         convergence_history.append({
@@ -620,12 +630,18 @@ class IGA(BaseAlgorithm):
 
         # ── Pha 3: Chu trình tiến hóa thích nghi nhanh ────────────────────────
         log_interval = max(1, max_gen // 10)  # Log đều đặn ~10 mốc tiến trình trong quá trình tiến hóa
-        print(f"      [IGA] Pha 3: Bắt đầu chu trình tiến hóa thích nghi nhanh (T_max = {max_gen} thế hệ)...", flush=True)
+        self._log(f"Pha 3: Bắt đầu chu trình tiến hóa thích nghi nhanh (T_max = {max_gen} thế hệ)...")
 
         for gen in range(1, max_gen + 1):
             if total_evals >= budget:
-                print(f"      [IGA] [Gen {gen}] Đã đạt giới hạn đánh giá budget={budget}. Dừng sớm.", flush=True)
+                self._log(f"[Gen {gen}] Đã đạt giới hạn đánh giá budget={budget}. Dừng sớm.")
                 break
+
+            if self.progress_callback is not None:
+                try:
+                    self.progress_callback(gen / max_gen)
+                except Exception:
+                    pass
 
             # Cập nhật tham số thích ứng động (Công thức 2.29 & 2.30)
             progress = gen / max(1, max_gen)
@@ -641,9 +657,8 @@ class IGA(BaseAlgorithm):
 
                 # Đột biến giải cứu nếu bị trì trệ 3 thế hệ liên tiếp
                 if stagnation_count >= 3:
-                    print(
-                        f"      [IGA] [Gen {gen:3d}] ⚡ Kích hoạt Đột biến giải cứu (đa dạng={div_val:.3f} < {self.epsilon_div}, trì trệ {stagnation_count} thế hệ)",
-                        flush=True,
+                    self._log(
+                        f"[Gen {gen:3d}] ⚡ Kích hoạt Đột biến giải cứu (đa dạng={div_val:.3f} < {self.epsilon_div}, trì trệ {stagnation_count} thế hệ)"
                     )
                     sorted_curr = sorted(pop.individuals, key=lambda s: s.fitness or 0.0, reverse=True)
                     rescued_individuals: List[Solution] = []
@@ -721,9 +736,8 @@ class IGA(BaseAlgorithm):
 
             # In nhật ký tiến trình định kỳ
             if gen == 1 or gen % log_interval == 0 or gen == max_gen:
-                print(
-                    f"      [IGA] Thế hệ {gen:3d}/{max_gen} | f_LIE: {c_best_lie.fitness:6.2f} | Đa dạng Jaccard: {div_val:.3f} | pm: {pm_t:.2f}, pc: {pc_t:.2f}",
-                    flush=True,
+                self._log(
+                    f"Thế hệ {gen:3d}/{max_gen} | f_LIE: {c_best_lie.fitness:6.2f} | Đa dạng Jaccard: {div_val:.3f} | pm: {pm_t:.2f}, pc: {pc_t:.2f}"
                 )
 
             convergence_history.append({
@@ -740,9 +754,8 @@ class IGA(BaseAlgorithm):
 
         # ── Pha 4: Sàng lọc tinh hoa cuối cùng bằng mô phỏng Monte Carlo ──────
         final_elite = sorted(pop.individuals, key=lambda s: s.fitness or 0.0, reverse=True)[: self.elitism]
-        print(
-            f"      [IGA] Pha 4: Sàng lọc {len(final_elite)} cá thể tinh hoa bằng {self.r_final} lượt mô phỏng Monte Carlo (C++ OpenMP)...",
-            flush=True,
+        self._log(
+            f"Pha 4: Sàng lọc {len(final_elite)} cá thể tinh hoa bằng {self.r_final} lượt mô phỏng Monte Carlo (C++ OpenMP)..."
         )
 
         # Đánh giá chính xác cao bằng C++ Monte Carlo Engine
@@ -754,15 +767,42 @@ class IGA(BaseAlgorithm):
             mc_spread = problem.fitness(cand)
             cand.fitness = mc_spread
             total_evals += 1
-            print(f"      [IGA] Pha 4: Cá thể tinh hoa #{cand_idx}/{len(final_elite)} -> σ_MC = {mc_spread:.2f}", flush=True)
+            self._log(f"Pha 4: Cá thể tinh hoa #{cand_idx}/{len(final_elite)} -> σ_MC = {mc_spread:.2f}")
             if mc_spread > best_mc_spread:
                 best_mc_spread = mc_spread
                 best_overall_solution = cand
 
+        # Trích xuất top 5 cá thể đa dạng cho giao diện kết quả & so sánh
+        seen_signatures = set()
+        top_individuals = []
+        top_individuals.append({
+            "rank": 1,
+            "seeds": sorted(best_overall_solution.seed_set),
+            "fitness": float(best_overall_solution.fitness or best_mc_spread),
+            "spread": float(best_mc_spread),
+        })
+        seen_signatures.add(tuple(sorted(best_overall_solution.seed_set)))
+
+        for ind in sorted(pop.individuals, key=lambda s: s.fitness or 0.0, reverse=True):
+            sig = tuple(sorted(ind.seed_set))
+            if sig not in seen_signatures:
+                seen_signatures.add(sig)
+                try:
+                    sp_val = float(problem.fitness(ind))
+                except Exception:
+                    sp_val = float(ind.fitness or best_mc_spread)
+                top_individuals.append({
+                    "rank": len(top_individuals) + 1,
+                    "seeds": sorted(ind.seed_set),
+                    "fitness": float(ind.fitness or sp_val),
+                    "spread": sp_val,
+                })
+                if len(top_individuals) >= 5:
+                    break
+
         t_total_end = time.perf_counter()
-        print(
-            f"      [IGA] Hoàn tất! S* = {best_overall_solution.seed_set[:min(k, 8)]}... | σ_MC = {best_mc_spread:.2f} | Thời gian: {t_total_end - t_start:.2f}s",
-            flush=True,
+        self._log(
+            f"Hoàn tất! S* = {best_overall_solution.seed_set[:min(k, 8)]}... | σ_MC = {best_mc_spread:.2f} | Thời gian: {t_total_end - t_start:.2f}s"
         )
 
         return AlgorithmResult(
@@ -788,5 +828,6 @@ class IGA(BaseAlgorithm):
                 "r_final": self.r_final,
                 "num_communities": len(communities),
                 "random_seed": seed,
+                "top_individuals": top_individuals,
             },
         )

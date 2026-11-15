@@ -29,6 +29,7 @@ from im_research.gui.components.diffusion_simulator import (
     load_networkx_graph,
     run_celf_on_graph,
     run_cpp_ga_on_graph,
+    run_iga_on_graph,
     run_simulation_on_graph,
 )
 
@@ -237,11 +238,11 @@ class PageExperiments(ctk.CTkFrame):
         ga_head = ctk.CTkFrame(inner, fg_color="transparent")
         ga_head.pack(fill="x", pady=(8, 0))
         ctk.CTkLabel(
-            ga_head, text="Tham số GA (C++)",
+            ga_head, text="Tham số Tiến hóa (GA / IGA)",
             font=FONT_SMALL, text_color=SUBTEXT_FG,
         ).pack(side="left")
         ctk.CTkLabel(
-            ga_head, text="Có thể nhập tay; GA C++ dùng trực tiếp các giá trị này",
+            ga_head, text="Áp dụng cho Baseline GA (C++) và IGA (Đề xuất)",
             font=FONT_SMALL, text_color=SUBTEXT_FG,
         ).pack(side="left", padx=(8, 0))
 
@@ -318,7 +319,7 @@ class PageExperiments(ctk.CTkFrame):
 
         for index, (code, name) in enumerate(ALGO_OPTIONS):
             row, column = divmod(index, 3)
-            variable = ctk.BooleanVar(value=(code == "ga"))
+            variable = ctk.BooleanVar(value=(code in ("ga", "iga")))
             self.algo_checks[code] = variable
             checkbox = ctk.CTkCheckBox(
                 algo_grid, text=name, variable=variable, font=FONT_MAIN,
@@ -542,6 +543,50 @@ class PageExperiments(ctk.CTkFrame):
             self.stat_values[key] = value_label
 
         self._seed_tooltip = Tooltip(self.stat_values["seeds"], "Chưa có dữ liệu")
+
+        # Live Terminal Logs Panel
+        term_header = ctk.CTkFrame(inner, fg_color="transparent")
+        term_header.pack(fill="x", pady=(8, 2))
+        ctk.CTkLabel(
+            term_header, text="TIẾN TRÌNH THỰC THI (TERMINAL LOGS)",
+            font=("Segoe UI", 9, "bold"), text_color=HEADER_FG, anchor="w",
+        ).pack(side="left")
+        ctk.CTkButton(
+            term_header, text="Xóa log", width=55, height=20, corner_radius=4,
+            font=("Segoe UI", 9), fg_color=("#e2e8f0", "#334155"),
+            hover_color=("#cbd5e1", "#475569"), text_color=HEADER_FG,
+            command=self._clear_logs,
+        ).pack(side="right")
+
+        self.log_textbox = ctk.CTkTextbox(
+            inner, corner_radius=8,
+            font=("Consolas", 10),
+            fg_color=CHART_BG, text_color="#cbd5e1",
+            border_width=1, border_color=BORDER_COLOR,
+            wrap="word",
+        )
+        self.log_textbox.pack(fill="both", expand=True, pady=(2, 0))
+        self.log_textbox.insert("end", "[Hệ thống] Sẵn sàng thực thi mô phỏng. Chọn thuật toán và bấm EXECUTE SIMULATION.\n")
+        self.log_textbox.configure(state="disabled")
+
+    def _clear_logs(self):
+        if not self._alive:
+            return
+        self.log_textbox.configure(state="normal")
+        self.log_textbox.delete("1.0", "end")
+        self.log_textbox.configure(state="disabled")
+
+    def _append_log(self, text: str):
+        if not self._alive or not hasattr(self, "log_textbox"):
+            return
+        def apply():
+            if not self._alive:
+                return
+            self.log_textbox.configure(state="normal")
+            self.log_textbox.insert("end", text + "\n")
+            self.log_textbox.see("end")
+            self.log_textbox.configure(state="disabled")
+        self._schedule_ui(apply)
 
     def on_show(self):
         if not self._alive:
@@ -984,6 +1029,11 @@ class PageExperiments(ctk.CTkFrame):
         run_codes = list(selected) + baseline_codes
         total = len(run_codes)
 
+        self._append_log("\n" + "=" * 56)
+        self._append_log(f" BẮT ĐẦU MÔ PHỎNG: {dataset} | {model} | k={k} | MC={mc}")
+        self._append_log(f" Thuật toán: {', '.join([ALGO_LABELS.get(c, c) for c in selected])}")
+        self._append_log("=" * 56)
+
         try:
             for index, code in enumerate(run_codes):
                 is_baseline = code not in selected
@@ -994,6 +1044,7 @@ class PageExperiments(ctk.CTkFrame):
                     index / total,
                     f"Đang chạy {label} ({index + 1}/{total})...",
                 )
+                self._append_log(f"\n>>> [{index + 1}/{total}] Đang thực thi {label}...")
 
                 def report(phase, base=index / total, span=1 / total, name=label):
                     self._post_progress(
@@ -1002,36 +1053,53 @@ class PageExperiments(ctk.CTkFrame):
                     )
 
                 try:
-                    if code == "ga" and CPP_CORE_AVAILABLE:
+                    if code == "iga" and CPP_CORE_AVAILABLE:
+                        outcome = run_iga_on_graph(
+                            dataset, model, k, mc, params,
+                            progress=report,
+                            log_callback=self._append_log,
+                        )
+                    elif code == "ga" and CPP_CORE_AVAILABLE:
+                        self._append_log(f"[GA] Đang chạy Baseline GA qua C++ OpenMP Core...")
                         outcome = run_cpp_ga_on_graph(
                             dataset, model, k, mc, params,
                             progress=report,
                         )
+                        self._append_log(f"[GA] Hoàn tất! Mean spread = {outcome['mean_spread']:.2f} trong {outcome['execution_time']:.2f}s")
                     elif code == "celf" and CPP_CORE_AVAILABLE:
+                        self._append_log(f"[CELF] Đang chạy CELF Lazy Forward qua C++ Evaluator...")
                         outcome = run_celf_on_graph(
                             dataset, model, k, mc, progress=report,
                         )
+                        self._append_log(f"[CELF] Hoàn tất! Mean spread = {outcome['mean_spread']:.2f} trong {outcome['execution_time']:.2f}s")
                     else:
+                        self._append_log(f"[{code.upper()}] Đang chạy mô phỏng đồ thị...")
                         outcome = run_simulation_on_graph(
                             graph, meta, dataset, model, k, mc, code,
                             progress=report, params=params,
                         )
+                        self._append_log(f"[{code.upper()}] Hoàn tất! Mean spread = {outcome['mean_spread']:.2f}")
+
                     if is_baseline:
                         baseline[code] = outcome
                     else:
                         outcomes[code] = outcome
                 except Exception as error:
+                    self._append_log(f"[LỖI] Thuật toán {code}: {error}")
                     if not is_baseline:
                         errors[code] = str(error)
 
             save_error = None
             if outcomes:
+                self._append_log(f"\n[Hệ thống] Hoàn tất mô phỏng! Đang lưu kết quả...")
                 try:
                     self._save_results(
                         outcomes, dataset, model, k, mc, baseline,
                     )
+                    self._append_log(f"[Hệ thống] Kết quả đã được lưu trữ thành công vào Results Store.")
                 except Exception as error:
                     save_error = str(error)
+                    self._append_log(f"[CẢNH BÁO] Không thể lưu kết quả: {save_error}")
 
             self._schedule_ui(self._post_complete, outcomes, errors, save_error)
         except Exception as error:

@@ -325,6 +325,14 @@ class _NXAdapter:
     def col_indices(self):
         return self._col_indices
 
+    def edge_probs(self):
+        probs = []
+        for u in range(self._n):
+            for v in self._adjacency[u]:
+                deg_v = max(1, len(self._adjacency[v]))
+                probs.append(1.0 / deg_v)
+        return probs
+
 
 class _PythonEvaluator:
     def __init__(self, graph, model: str, mc: int, seed: int):
@@ -535,6 +543,167 @@ def run_cpp_ga_on_graph(dataset: str, model: str, k: int, mc: int,
         "code": "ga",
         "name": ALGO_LABELS.get("ga", "Baseline GA"),
         "algorithm_name": result.algorithm_name,
+        "dataset": meta.get("name", dataset),
+        "model": model_label,
+        "seeds": seeds,
+        "timeline": timeline,
+        "cumulative": cumulative,
+        "final_spread": final_spread,
+        "mean_spread": mean_spread,
+        "std_spread": std_spread,
+        "spreads": spread_values,
+        "total_nodes": total_nodes,
+        "full_n": total_nodes,
+        "ratio": final_spread / total_nodes if total_nodes else 0.0,
+        "mean_ratio": mean_spread / total_nodes if total_nodes else 0.0,
+        "execution_time": finished - started,
+        "params": params,
+        "individuals": individuals,
+        "meta": outcome_meta,
+        "seed": seed,
+        "generations": int(result.metadata.get("generations_completed", len(result.convergence_history))),
+    }
+
+
+def run_iga_on_graph(dataset: str, model: str, k: int, mc: int,
+                     params: dict, seed: int = -1,
+                     progress=None, log_callback=None) -> dict:
+    if _im_core is None:
+        raise RuntimeError(
+            "C++ core (_im_core) chưa được build. Hãy build pybind11 extension trước."
+        )
+    if not model.upper().startswith("IC"):
+        raise ValueError("IGA hiện chỉ hỗ trợ mô hình Independent Cascade.")
+    model_label = model if "WC" in model.upper() else "IC (WC)"
+
+    seed = int(seed)
+    if seed < 0:
+        seed = int(time.time_ns() % (2 ** 63 - 1)) or 1
+
+    if progress:
+        progress(0.02)
+
+    nx_graph, meta = load_networkx_graph(dataset)
+    cpp_graph = build_cpp_graph(nx_graph, probability_mode="wc")
+    total_nodes = nx_graph.number_of_nodes()
+    k = max(1, min(int(k), total_nodes))
+    mc = max(1, int(mc))
+    params = dict(params)
+
+    if progress:
+        progress(0.10)
+
+    evaluator = _im_core.Evaluator(
+        cpp_graph,
+        _im_core.DiffusionModel.IndependentCascade,
+        num_mc_simulations=mc,
+        seed=seed,
+    )
+    problem = IMProblem(cpp_graph, k, evaluator)
+
+    pop_size = int(params.get("N", 50))
+    tmax = int(params.get("Tmax", 100))
+    pc_max = float(params.get("Pc", 0.90))
+    pm_max = float(params.get("Pm", 0.35))
+    pc_min = float(params.get("p_c_min", 0.60))
+    pm_min = float(params.get("p_m_min", 0.05))
+    q_tour = int(params.get("q", max(1, int(round(0.10 * pop_size)))))
+    elite = int(params.get("E", max(1, int(round(0.04 * pop_size)))))
+    epsilon_div = float(params.get("epsilon_div", 0.30))
+    tau_overlap = float(params.get("tau_overlap", 0.50))
+    local_search_steps = int(params.get("L_max", 10))
+    r_final = int(params.get("r_final", max(mc, 1000)))
+
+    def _iga_progress(frac: float):
+        if progress:
+            # map evolution progress from 0.15 to 0.85
+            progress(0.15 + frac * 0.70)
+
+    algorithm = IGA(
+        pop_size=pop_size,
+        max_generations=tmax,
+        p_c_min=pc_min,
+        p_c_max=pc_max,
+        p_m_min=pm_min,
+        p_m_max=pm_max,
+        tournament_size=q_tour,
+        elitism=elite,
+        epsilon_div=epsilon_div,
+        tau_overlap=tau_overlap,
+        local_search_steps=local_search_steps,
+        r_final=r_final,
+        log_callback=log_callback,
+        progress_callback=_iga_progress,
+    )
+
+    started = time.perf_counter()
+    result = algorithm.run(
+        problem,
+        seed=seed,
+        max_iterations=tmax,
+    )
+    seeds = sorted(int(node) for node in result.best_solution.seed_set)
+
+    if progress:
+        progress(0.90)
+
+    spread_values = [
+        int(value)
+        for value in evaluator.evaluate_replications(seeds, mc)
+    ]
+    if not spread_values:
+        spread_values = [int(result.best_solution.fitness or 0)]
+
+    mean_spread = sum(spread_values) / len(spread_values)
+    if len(spread_values) > 1:
+        variance = sum((value - mean_spread) ** 2 for value in spread_values) / len(spread_values)
+        std_spread = math.sqrt(variance)
+    else:
+        std_spread = 0.0
+
+    validation_rng = random.Random(seed + 9999)
+    timeline = simulate_diffusion(nx_graph, seeds, model_label, validation_rng)
+    finished = time.perf_counter()
+
+    cumulative = []
+    active = set()
+    for step in timeline:
+        active.update(step)
+        cumulative.append(len(active))
+
+    final_spread = spread_values[0] if spread_values else 0
+    individuals = [
+        dict(individual)
+        for individual in result.metadata.get("top_individuals", [])
+    ]
+    if not individuals:
+        individuals = [{
+            "rank": 1,
+            "seeds": seeds,
+            "fitness": float(result.best_solution.fitness or mean_spread),
+            "spread": mean_spread,
+        }]
+
+    for individual in individuals:
+        if list(individual.get("seeds", [])) == seeds:
+            individual["fitness"] = float(result.best_solution.fitness or mean_spread)
+            individual["spread"] = mean_spread
+
+    outcome_meta = {
+        key: value for key, value in meta.items()
+        if key != "id_mapping"
+    }
+    outcome_meta["reduced"] = False
+    outcome_meta["full_n"] = total_nodes
+    outcome_meta["backend"] = "cpp"
+
+    if progress:
+        progress(1.0)
+
+    return {
+        "code": "iga",
+        "name": ALGO_LABELS.get("iga", "Improved GA"),
+        "algorithm_name": "IGA (Proposed)",
         "dataset": meta.get("name", dataset),
         "model": model_label,
         "seeds": seeds,

@@ -106,7 +106,9 @@ def _latest_experiment(dataset: Optional[str], model: str = "IC",
     return matches[-1] if matches else None
 
 
-def _format_seconds(value: float) -> str:
+def _format_seconds(value: Optional[float]) -> str:
+    if value is None:
+        return "—"
     if value >= 1.0:
         return f"{value:.3f}s"
     if value >= 0.001:
@@ -125,6 +127,17 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _opt_float(value: Any) -> Optional[float]:
+    """Returns a real finite number, or None when the field is absent/invalid."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -180,12 +193,15 @@ def _seed_sets_of(detail: Dict[str, Any]) -> List[List[int]]:
 #  Available filters (derived from real runs)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def get_available_datasets(model: str = "IC") -> List[str]:
-    return sorted({str(r.get("dataset")) for r in _load_experiments()
-                   if str(r.get("model", "IC")) == model and r.get("dataset")})
+def get_available_datasets(model: str = "") -> List[str]:
+    """Lists datasets recorded in runs/, optionally filtered by propagation model."""
+    return sorted({
+        str(r.get("dataset")) for r in _load_experiments()
+        if (not model or str(r.get("model") or "IC") == model) and r.get("dataset")
+    })
 
 
-def get_available_k_values(dataset: str, model: str = "IC") -> List[int]:
+def get_available_k_values(dataset: str, model: str = "") -> List[int]:
     values = set()
     for record in _matching_experiments(dataset, model):
         try:
@@ -196,13 +212,22 @@ def get_available_k_values(dataset: str, model: str = "IC") -> List[int]:
 
 
 def get_available_models(dataset: Optional[str] = None) -> List[str]:
-    return sorted({str(r.get("model", "IC")) for r in _load_experiments()
-                   if dataset is None or str(r.get("dataset")) == dataset})
+    return sorted({
+        str(r.get("model") or "IC") for r in _load_experiments()
+        if dataset is None or str(r.get("dataset")) == dataset
+    })
 
 
-def get_latest_run_selection(model: str = "IC") -> Optional[Dict[str, Any]]:
-    """Returns the filters of the most recent real run (used for initial UI state)."""
-    records = [r for r in _load_experiments() if str(r.get("model", "IC")) == model]
+def get_latest_run_selection(model: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Returns the filters of the most recent real run (used for initial UI state).
+
+    When ``model`` is None the newest run across every propagation model wins,
+    so the page follows whatever the user actually executed last.
+    """
+    records = [
+        r for r in _load_experiments()
+        if not model or str(r.get("model") or "IC") == model
+    ]
     if not records:
         return None
     record = records[-1]
@@ -213,7 +238,7 @@ def get_latest_run_selection(model: str = "IC") -> Optional[Dict[str, Any]]:
     return {
         "dataset": record.get("dataset"),
         "k": k_value,
-        "model": record.get("model", "IC"),
+        "model": str(record.get("model") or "IC"),
     }
 
 
@@ -238,33 +263,47 @@ def get_performance_summary(
         spreads = _spreads_of(detail)
         times = _times_of(detail)
 
-        mean = _mean(spreads) if spreads else _as_float(row.get("mean_spread"))
-        std = _pstd(spreads) if spreads else _as_float(row.get("std_spread"))
-        median = float(statistics.median(spreads)) if spreads else mean
-        best = max(spreads) if spreads else _as_float(row.get("best_spread"), mean)
-        run_count = len(spreads) or int(_as_float(record.get("runs"), 1) or 1)
-        total_time = _mean(times) if times else _as_float(row.get("mean_time"))
-        ci_95 = 1.96 * std / math.sqrt(run_count) if run_count > 1 else 0.0
+        mean = _mean(spreads) if spreads else _opt_float(row.get("mean_spread"))
+        std = _pstd(spreads) if spreads else _opt_float(row.get("std_spread"))
+        median = float(statistics.median(spreads)) if spreads else None
+        best = max(spreads) if spreads else _opt_float(row.get("best_spread"))
+        recorded_runs = _opt_float(record.get("runs"))
+        run_count = (
+            int(recorded_runs) if recorded_runs
+            else (len(spreads) if spreads else None)
+        )
+        time_mean = _mean(times) if times else _opt_float(row.get("mean_time"))
+        ci_95 = (
+            1.96 * std / math.sqrt(run_count)
+            if std is not None and run_count is not None and run_count > 1
+            else None
+        )
 
         rows.append({
             "code": code,
             "algorithm": row.get("algorithm") or code,
             "color": _color_for(code, index),
-            "best_spread": round(best, 2),
-            "mean_spread": round(mean, 2),
-            "median_spread": round(median, 2),
-            "std_spread": round(std, 2),
-            "ci_95": f"± {ci_95:.2f}" if run_count > 1 else "—",
-            "runs": run_count,
-            "time_total_num": total_time,
-            "time_total": _format_seconds(total_time),
+            "best_spread": round(best, 2) if best is not None else None,
+            "mean_spread": round(mean, 2) if mean is not None else None,
+            "median_spread": round(median, 2) if median is not None else None,
+            "std_spread": round(std, 2) if std is not None else None,
+            "ci_95": f"± {ci_95:.2f}" if ci_95 is not None else "—",
+            "runs": run_count if run_count is not None else "—",
+            "time_mean_num": time_mean,
+            "time_mean": _format_seconds(time_mean),
             # The runner does not record a stage breakdown.
             "time_prep": "—",
             "time_search": "—",
             "time_eval": "—",
         })
 
-    rows.sort(key=lambda r: r["mean_spread"], reverse=True)
+    rows.sort(
+        key=lambda r: (
+            r["mean_spread"] is not None,
+            r["mean_spread"] if r["mean_spread"] is not None else float("-inf"),
+        ),
+        reverse=True,
+    )
     for index, row in enumerate(rows, start=1):
         row["rank"] = index
     return rows
@@ -297,8 +336,10 @@ def get_spread_vs_k_data(
             code = str(row.get("code") or "").lower()
             detail = _detail_for(record, row)
             spreads = _spreads_of(detail)
-            mean = _mean(spreads) if spreads else _as_float(row.get("mean_spread"))
-            median = float(statistics.median(spreads)) if spreads else mean
+            mean = _mean(spreads) if spreads else _opt_float(row.get("mean_spread"))
+            if mean is None:
+                continue
+            median = float(statistics.median(spreads)) if spreads else None
 
             slot = by_k.setdefault(record_k, {}).setdefault(code, {"means": [], "medians": []})
             slot["means"].append(mean)
@@ -322,7 +363,8 @@ def get_spread_vs_k_data(
                 continue
             curve_k.append(value_k)
             means.append(round(_mean(means_at_k), 2))
-            medians.append(round(_mean(medians_at_k), 2))
+            known_medians = [value for value in medians_at_k if value is not None]
+            medians.append(round(_mean(known_medians), 2) if known_medians else None)
             errors.append(round(_pstd(means_at_k), 2))
         if means:
             curves[code] = {
@@ -376,7 +418,12 @@ def get_runtime_analysis_data(
         code = str(row.get("code") or "").lower()
         detail = _detail_for(record, row)
         times = _times_of(detail)
-        total = _mean(times) if times else _as_float(row.get("mean_time"))
+        mean_time = _mean(times) if times else _opt_float(row.get("mean_time"))
+        recorded_runs = _opt_float(record.get("runs"))
+        sample_count = (
+            int(recorded_runs) if recorded_runs
+            else (len(times) if times else None)
+        )
         stages.append({
             "code": code,
             "algorithm": row.get("algorithm") or code,
@@ -384,8 +431,8 @@ def get_runtime_analysis_data(
             "prep": None,
             "search": None,
             "eval": None,
-            "total": total,
-            "runs": len(times) or int(_as_float(record.get("runs"), 1) or 1),
+            "mean_time": mean_time,
+            "runs": sample_count if sample_count is not None else "—",
         })
 
     by_k: Dict[int, Dict[str, List[float]]] = {}
@@ -398,8 +445,10 @@ def get_runtime_analysis_data(
         for row in exp.get("summary") or []:
             code = str(row.get("code") or "").lower()
             times = _times_of(_detail_for(exp, row))
-            total = _mean(times) if times else _as_float(row.get("mean_time"))
-            by_k.setdefault(exp_k, {}).setdefault(code, []).append(total)
+            mean_time = _mean(times) if times else _opt_float(row.get("mean_time"))
+            if mean_time is None:
+                continue
+            by_k.setdefault(exp_k, {}).setdefault(code, []).append(mean_time)
             meta.setdefault(code, row.get("algorithm") or code)
 
     k_vals = sorted(by_k)
@@ -459,7 +508,6 @@ def get_convergence_data(
     if record is None:
         return None
 
-    details = record.get("details") or {}
     series: Dict[str, Dict[str, Any]] = {}
     for index, row in enumerate(record.get("summary") or []):
         code = str(row.get("code") or "").lower()
@@ -470,9 +518,9 @@ def get_convergence_data(
         if aggregated is None:
             continue
 
-        final = round(_as_float(row.get("mean_spread")), 2)
+        final = _opt_float(row.get("mean_spread"))
         best_curve = aggregated["best"]
-        peak = max(best_curve) if best_curve else final
+        peak = max(best_curve) if best_curve else (final or 0.0)
 
         def first_generation(ratio: float) -> Optional[int]:
             if peak <= 0:
@@ -483,15 +531,21 @@ def get_convergence_data(
                     return generation
             return None
 
+        evaluations = [
+            _opt_float(item.get("evaluations"))
+            for item in detail.get("runs_detail") or []
+            if isinstance(item, dict)
+        ]
+        evaluations = [value for value in evaluations if value is not None]
+
         series[code] = {
             **aggregated,
             "name": row.get("algorithm") or code,
             "color": _color_for(code, index),
-            "final": final,
+            "final": round(final, 2) if final is not None else None,
             "gen_90": first_generation(0.90),
             "gen_98": first_generation(0.98),
-            "total_evaluations": int(_as_float(
-                (detail.get("runs_detail") or [{}])[0].get("evaluations"), 0)),
+            "total_evaluations": int(_mean(evaluations)) if evaluations else None,
         }
 
     if not series:
@@ -529,30 +583,31 @@ def get_seed_set_analysis_data(
     if not candidates:
         return None
 
-    def find(code: str):
-        return next((item for item in candidates if str(item[0].get("code", "")).lower() == code), None)
-
-    pair = (find("iga"), find("ga"))
-    if not all(pair):
-        pair = tuple(candidates[:2]) if len(candidates) >= 2 else (candidates[0], None)
+    if len(candidates) >= 2:
+        pair = (candidates[0], candidates[1])
+    else:
+        pair = (candidates[0], None)
 
     row_a, seeds_a = pair[0]
     row_b, seeds_b = pair[1] if pair[1] else (None, [])
 
     paired = min(len(seeds_a), len(seeds_b)) if seeds_b else 0
+    has_comparison = paired > 0
     jaccard_scores = [_jaccard(seeds_a[i], seeds_b[i]) for i in range(paired)]
     shared_counts = [len(set(seeds_a[i]) & set(seeds_b[i])) for i in range(paired)]
     unique_a = [len(set(seeds_a[i]) - set(seeds_b[i])) for i in range(paired)]
     unique_b = [len(set(seeds_b[i]) - set(seeds_a[i])) for i in range(paired)]
 
-    jaccard = _mean(jaccard_scores) if jaccard_scores else 0.0
-    shared = _mean(shared_counts) if shared_counts else 0.0
-    only_a = _mean(unique_a) if unique_a else float(len(set(seeds_a[0]))) if seeds_a else 0.0
-    only_b = _mean(unique_b) if unique_b else float(len(set(seeds_b[0]))) if seeds_b else 0.0
+    jaccard = _mean(jaccard_scores) if has_comparison else None
+    shared = _mean(shared_counts) if has_comparison else None
+    only_a = _mean(unique_a) if has_comparison else None
+    only_b = _mean(unique_b) if has_comparison else None
 
+    union_a = set().union(*(set(s) for s in seeds_a)) if seeds_a else set()
     union_b = set().union(*(set(s) for s in seeds_b)) if seeds_b else set()
 
-    def node_rows(seed_sets: Sequence[Sequence[int]], other_union: set) -> List[Dict[str, Any]]:
+    def node_rows(seed_sets: Sequence[Sequence[int]], other_union: set,
+                  compared: bool) -> List[Dict[str, Any]]:
         counts: Dict[int, int] = {}
         for seed_set in seed_sets:
             for node in set(seed_set):
@@ -563,17 +618,17 @@ def get_seed_set_analysis_data(
                 "node_id": node,
                 "frequency": count,
                 "runs": len(seed_sets),
-                "is_shared": node in other_union,
+                "is_shared": (node in other_union) if compared else None,
             }
             for node, count in ordered
         ]
 
     name_a = row_a.get("algorithm") or "Thuật toán A"
     name_b = (row_b or {}).get("algorithm") or "—"
-    nodes_iga = node_rows(seeds_a, union_b or set())
-    nodes_ga = node_rows(seeds_b, set().union(*(set(s) for s in seeds_a)) if seeds_a else set())
+    nodes_a = node_rows(seeds_a, union_b, has_comparison)
+    nodes_b = node_rows(seeds_b, union_a, has_comparison)
 
-    if paired:
+    if has_comparison:
         insight = (
             f"{name_a} và {name_b} chia sẻ trung bình {shared:.1f}/{int(_as_float(record.get('k'), 0))} "
             f"đỉnh hạt giống qua {paired} cặp lần chạy (Jaccard trung bình = {jaccard * 100:.1f}%). "
@@ -591,13 +646,13 @@ def get_seed_set_analysis_data(
         "algorithm_a": name_a,
         "algorithm_b": name_b,
         "jaccard_similarity": jaccard,
-        "jaccard_pct": f"{jaccard * 100:.1f}%",
+        "jaccard_pct": f"{jaccard * 100:.1f}%" if has_comparison else "—",
         "shared_count": shared,
         "paired_runs": paired,
-        "unique_iga_count": only_a,
-        "unique_ga_count": only_b,
-        "nodes_iga": nodes_iga,
-        "nodes_ga": nodes_ga,
+        "unique_a_count": only_a,
+        "unique_b_count": only_b,
+        "nodes_a": nodes_a,
+        "nodes_b": nodes_b,
         "insight": insight,
     }
 
@@ -615,16 +670,19 @@ def export_statistics_csv(
     """Builds a CSV for the selected tab from the same real data as the UI."""
     lines: List[str] = []
 
+    def cell(value: Any, digits: int = 4) -> str:
+        return "" if value is None else f"{float(value):.{digits}f}"
+
     if tab_name == "overview":
         summary = get_performance_summary(dataset_name, k=k, model=model)
         if not summary:
             return ""
-        lines.append("Algorithm,Best Spread,Mean Spread,Median Spread,Std Dev,95% CI,Runs,Total Time (s),Rank")
+        lines.append("Algorithm,Best Spread,Mean Spread,Median Spread,Std Dev,95% CI,Runs,Mean Time (s),Rank")
         for row in summary:
             lines.append(
-                f'"{row["algorithm"]}",{row["best_spread"]},{row["mean_spread"]},'
-                f'{row["median_spread"]},{row["std_spread"]},"{row["ci_95"]}",'
-                f'{row["runs"]},{row["time_total_num"]:.4f},{row["rank"]}'
+                f'"{row["algorithm"]}",{cell(row["best_spread"], 2)},{cell(row["mean_spread"], 2)},'
+                f'{cell(row["median_spread"], 2)},{cell(row["std_spread"], 2)},"{row["ci_95"]}",'
+                f'{row["runs"]},{cell(row["time_mean_num"])},{row["rank"]}'
             )
 
     elif tab_name == "spread":
@@ -639,9 +697,11 @@ def export_statistics_csv(
         data = get_runtime_analysis_data(dataset_name, model=model, k=k)
         if not data["stages"]:
             return ""
-        lines.append("Algorithm,Total Runtime (s),Runs")
+        lines.append("Algorithm,Mean Runtime (s),Runs")
         for stage in data["stages"]:
-            lines.append(f'"{stage["algorithm"]}",{stage["total"]:.4f},{stage["runs"]}')
+            lines.append(
+                f'"{stage["algorithm"]}",{cell(stage["mean_time"])},{stage["runs"]}'
+            )
 
     elif tab_name == "convergence":
         convergence = get_convergence_data(dataset_name, k=k, model=model)
@@ -663,15 +723,17 @@ def export_statistics_csv(
         if not data:
             return ""
         lines.append("Algorithm,Node ID,Selected Runs,Total Runs,Shared")
-        for node in data["nodes_iga"]:
+        for node in data["nodes_a"]:
+            shared = "" if node["is_shared"] is None else node["is_shared"]
             lines.append(
                 f'"{data["algorithm_a"]}",{node["node_id"]},'
-                f'{node["frequency"]},{node["runs"]},{node["is_shared"]}'
+                f'{node["frequency"]},{node["runs"]},{shared}'
             )
-        for node in data["nodes_ga"]:
+        for node in data["nodes_b"]:
+            shared = "" if node["is_shared"] is None else node["is_shared"]
             lines.append(
                 f'"{data["algorithm_b"]}",{node["node_id"]},'
-                f'{node["frequency"]},{node["runs"]},{node["is_shared"]}'
+                f'{node["frequency"]},{node["runs"]},{shared}'
             )
 
     return "\n".join(lines)
