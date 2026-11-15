@@ -353,6 +353,7 @@ def _default_config(
     mutation_rate: float,
     tournament_size: int,
     random_seed: int,
+    celf_random_seed: int,
     validation_mc_runs: int,
     record_population_history: bool,
     record_mc_details: bool,
@@ -405,6 +406,7 @@ def _default_config(
         "mutation_rate": float(mutation_rate),
         "tournament_size": int(tournament_size),
         "random_seed": int(random_seed),
+        "celf_random_seed": int(celf_random_seed),
         "record_population_history": bool(record_population_history),
         "record_failed_edges": bool(record_failed_edges),
         "iga": {
@@ -443,6 +445,7 @@ def run_benchmark(
     mutation_rate: float = 0.1,
     tournament_size: int = 3,
     random_seed: int = 42,
+    celf_random_seed: int = 42,
     validation_mc_runs: int | None = None,
     output_dir: str | Path = "runs/colab_experiment",
     record_population_history: bool = True,
@@ -470,6 +473,7 @@ def run_benchmark(
         mutation_rate,
         tournament_size,
         random_seed,
+        celf_random_seed,
         validation_mc_runs,
         record_population_history,
         record_mc_details,
@@ -541,6 +545,7 @@ def run_benchmark(
             run_record: Dict[str, Any] = {
                 "run_id": run_number,
                 "random_seed": run_seed,
+                "celf_random_seed": celf_random_seed,
                 "algorithms": {},
             }
             print(
@@ -548,8 +553,14 @@ def run_benchmark(
             )
 
             for algorithm_name in config["algorithms"]:
-                search_seed = run_seed
-                validation_seed = random_seed + 100000 + (run_number - 1) * 1009
+                search_seed = (
+                    celf_random_seed if algorithm_name == "CELF" else run_seed
+                )
+                validation_seed = (
+                    celf_random_seed + 100000
+                    if algorithm_name == "CELF"
+                    else random_seed + 100000 + (run_number - 1) * 1009
+                )
                 algorithm = _algorithm_instance(
                     algorithm_name, config, validation_mc_runs
                 )

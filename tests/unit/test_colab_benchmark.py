@@ -78,3 +78,27 @@ def test_benchmark_reports_seed_set_consistency_across_independent_runs(tmp_path
     assert consistency["unique_seed_sets"] >= 1
     assert consistency["best_run_id"] in (1, 2)
     assert len(consistency["best_run_seed_set"]) == 2
+
+
+def test_celf_uses_fixed_seed_across_independent_runs(tmp_path):
+    result = run_benchmark(
+        dataset_name="Karate Club",
+        probability_model="WC",
+        k=2,
+        mc_runs=2,
+        validation_mc_runs=3,
+        independent_runs=2,
+        algorithms=["CELF"],
+        random_seed=123,
+        celf_random_seed=42,
+        output_dir=tmp_path / "experiment",
+    )
+
+    payload = json.loads(
+        (tmp_path / "experiment" / "runs.json").read_text(encoding="utf-8")
+    )
+    assert [run["algorithms"]["CELF"]["random_seeds"]["search"] for run in payload] == [
+        42,
+        42,
+    ]
+    assert result["configuration"]["celf_random_seed"] == 42

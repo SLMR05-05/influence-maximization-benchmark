@@ -203,7 +203,8 @@ Các tham số nằm trong cell `CONFIG`.
 | `crossover_rate` | Tỷ lệ lai ghép | `0.8` |
 | `mutation_rate` | Tỷ lệ đột biến | `0.1` |
 | `tournament_size` | Kích thước tournament selection | `3` |
-| `random_seed` | Seed tái lập kết quả | `42` |
+| `random_seed` | Seed cho GA/IGA; notebook tự tạo theo thời gian | `int(time.time_ns() % (2**31 - 1))` |
+| `celf_random_seed` | Seed cố định cho Monte Carlo của CELF | `42` |
 | `record_population_history` | Lưu lịch sử quần thể | `True` |
 | `record_mc_details` | Lưu từng spread của validation MC | `False` |
 | `record_failed_edges` | Lưu cạnh thất bại trong diffusion history | `False` |
@@ -378,6 +379,11 @@ Các trường cần xem:
 
 Sau đó, `seed_set` ở cấp thuật toán trong cùng record là seed set đã được đánh
 giá lại bằng validation Monte Carlo và được dùng làm kết quả cuối của run.
+
+Notebook dùng seed tách riêng: `random_seed` thay đổi theo thời gian cho GA/IGA,
+còn `celf_random_seed` giữ cố định để kết quả CELF không thay đổi chỉ vì bấm
+chạy benchmark lần khác. Cả hai seed đều được lưu trong `config.json` và
+`runs.json`.
 
 Trong `runs.json`, GA và IGA cũng có trường ngắn gọn ở cấp thuật toán:
 
