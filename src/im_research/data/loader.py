@@ -30,10 +30,28 @@ SNAP_URLS = {
 }
 
 
-def load_networkx_graph(dataset_name: str) -> Tuple[nx.Graph, dict]:
+def load_networkx_graph(
+    dataset_name: str,
+    dataset_path: str | Path | None = None,
+    directed: bool = False,
+) -> Tuple[nx.Graph, dict]:
+    if dataset_path is not None:
+        path = Path(dataset_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Dataset path does not exist: {path}")
+        graph_type = nx.DiGraph if directed else nx.Graph
+        nx_g = nx.read_edgelist(path, nodetype=int, create_using=graph_type)
+        source = str(path)
+        display_name = dataset_name
+    else:
+        nx_g = None
+        source = ""
+        display_name = dataset_name
     name_clean = dataset_name.lower().replace(" ", "").replace("-", "").replace("_", "")
 
-    if "karate" in name_clean:
+    if nx_g is not None:
+        pass
+    elif "karate" in name_clean:
         nx_g = nx.karate_club_graph()
         source = "Zachary (1977)"
         display_name = "Karate Club"
@@ -62,7 +80,10 @@ def load_networkx_graph(dataset_name: str) -> Tuple[nx.Graph, dict]:
     ordered_nodes = sorted(original_nodes)
     relabel = {old: new for new, old in enumerate(ordered_nodes)}
     nx_g = nx.relabel_nodes(nx_g, relabel, copy=True)
-    nx_g = nx.Graph(nx_g)
+    if directed:
+        nx_g = nx.DiGraph(nx_g)
+    else:
+        nx_g = nx.Graph(nx_g)
     nx_g.remove_edges_from(list(nx.selfloop_edges(nx_g)))
 
     if nx_g.number_of_nodes() == 0:
@@ -75,7 +96,7 @@ def load_networkx_graph(dataset_name: str) -> Tuple[nx.Graph, dict]:
         "n": nx_g.number_of_nodes(),
         "m": nx_g.number_of_edges(),
         "source": source,
-        "directed": False,
+        "directed": bool(nx_g.is_directed()),
         "preprocessed": True,
         "self_loops_removed": True,
         "duplicate_edges_removed": True,
@@ -100,7 +121,9 @@ def build_cpp_graph(
     mode = probability_mode.lower()
     if mode in ("wc", "weighted", "weighted_cascade"):
         if hasattr(_im_core.Graph, "from_edge_list_wc"):
-            return _im_core.Graph.from_edge_list_wc(n, edges, is_directed=False)
+            return _im_core.Graph.from_edge_list_wc(
+                n, edges, is_directed=bool(nx_g.is_directed())
+            )
         else:
             directed_edges: List[Tuple[int, int]] = []
             directed_probs: List[float] = []
@@ -112,11 +135,15 @@ def build_cpp_graph(
                 if not nx_g.is_directed() and u != v:
                     directed_edges.append((int(v), int(u)))
                     directed_probs.append(float(1.0 / deg_u))
-            return _im_core.Graph.from_edge_list(n, directed_edges, directed_probs, is_directed=True)
+            return _im_core.Graph.from_edge_list(
+                n, directed_edges, directed_probs, is_directed=True
+            )
 
     if mode in ("uniform", "constant", "fixed"):
         probs = [float(p)] * len(edges)
-        return _im_core.Graph.from_edge_list(n, edges, probs, is_directed=False)
+        return _im_core.Graph.from_edge_list(
+            n, edges, probs, is_directed=bool(nx_g.is_directed())
+        )
 
     raise ValueError(f"Unsupported probability mode: {probability_mode}")
 
@@ -126,6 +153,8 @@ def load_graph(
     p: float = 0.1,
     model: str = "IC",
     probability_mode: str = "uniform",
+    dataset_path: str | Path | None = None,
+    directed: bool = False,
 ) -> Tuple[_im_core.Graph, dict]:
     """
     Loads or downloads the specified graph dataset and converts it to a C++ CSR Graph.
@@ -135,7 +164,11 @@ def load_graph(
     --------
     (cpp_graph, metadata)
     """
-    nx_g, meta = load_networkx_graph(dataset_name)
+    nx_g, meta = load_networkx_graph(
+        dataset_name,
+        dataset_path=dataset_path,
+        directed=directed,
+    )
     mode = "wc" if (model.upper() == "WC" or probability_mode.lower() in ("wc", "weighted", "weighted_cascade")) else "uniform"
     cpp_graph = build_cpp_graph(nx_g, probability_mode=mode, p=p)
     meta["model"] = "WC" if mode == "wc" else "IC"

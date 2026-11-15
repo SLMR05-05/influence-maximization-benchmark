@@ -342,6 +342,7 @@ class CELF(BaseAlgorithm):
                 "total_cost": uc_result["total_cost"],
                 "evaluations": uc_result["evaluations"],
                 "lazy_recomputes": uc_result["lazy_recomputes"],
+                "selection_history": uc_result["history"],
             },
             "cb": {
                 "seeds": cb_result["seeds"],
@@ -349,7 +350,10 @@ class CELF(BaseAlgorithm):
                 "total_cost": cb_result["total_cost"],
                 "evaluations": cb_result["evaluations"],
                 "lazy_recomputes": cb_result["lazy_recomputes"],
+                "selection_history": cb_result["history"],
             },
+            "selection_history": chosen["history"],
+            "final_fitness_type": "monte_carlo",
         }
         if online_bound_value is not None:
             metadata["online_bound"] = float(online_bound_value)

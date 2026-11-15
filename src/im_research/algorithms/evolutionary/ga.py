@@ -16,7 +16,7 @@ class BaselineGA(BaseAlgorithm):
     Standard GA with:
     - Random uniform initialization
     - Tournament selection
-    - Set-based crossover (union + random subsample to size k)
+    - One-point crossover with a repair operator
     - Uniform mutation (replace random gene with unseen node)
     - Elitism (best individual always survives)
 
@@ -30,7 +30,8 @@ class BaselineGA(BaseAlgorithm):
                  crossover_rate: float = 0.8,
                  mutation_rate: float = 0.1,
                  tournament_size: int = 3,
-                 elitism: int = 1):
+                 elitism: int = 1,
+                 record_history: bool = True):
         super().__init__(name="BaselineGA")
         self.pop_size = pop_size
         self.max_generations = max_generations
@@ -38,6 +39,7 @@ class BaselineGA(BaseAlgorithm):
         self.mutation_rate = mutation_rate
         self.tournament_size = tournament_size
         self.elitism = elitism
+        self.record_history = record_history
 
     # ------------------------------------------------------------------ #
     #  Operators                                                           #
@@ -51,20 +53,36 @@ class BaselineGA(BaseAlgorithm):
     def _crossover(self, parent_a: Solution, parent_b: Solution,
                    k: int, n: int, rng: random.Random) -> tuple[Solution, Solution]:
         """
-        Set-based crossover for discrete seed sets.
-        Child = random k-subset from (S_a ∪ S_b).
-        """
-        union = list(set(parent_a.seed_set) | set(parent_b.seed_set))
-        if len(union) < k:
-            # Pad with random nodes not in union
-            all_nodes = set(range(n))
-            extra = list(all_nodes - set(union))
-            rng.shuffle(extra)
-            union += extra[:k - len(union)]
+        One-point crossover for ordered seed chromosomes.
 
-        child_genes_1 = sorted(rng.sample(union, k))
-        child_genes_2 = sorted(rng.sample(union, k))
-        return Solution(child_genes_1), Solution(child_genes_2)
+        Duplicate and missing genes are repaired so every child contains
+        exactly k valid, distinct nodes.
+        """
+        if k <= 1:
+            return Solution(parent_a.seed_set[:]), Solution(parent_b.seed_set[:])
+
+        cut = rng.randint(1, k - 1)
+        genes_a = list(parent_a.seed_set)
+        genes_b = list(parent_b.seed_set)
+
+        def repair(genes: List[int], fallback: List[int]) -> Solution:
+            repaired: List[int] = []
+            seen = set()
+            for gene in genes + fallback:
+                if 0 <= gene < n and gene not in seen:
+                    repaired.append(gene)
+                    seen.add(gene)
+                if len(repaired) == k:
+                    break
+            if len(repaired) < k:
+                remaining = list(set(range(n)) - seen)
+                rng.shuffle(remaining)
+                repaired.extend(remaining[: k - len(repaired)])
+            return Solution(sorted(repaired[:k]))
+
+        child_1 = repair(genes_a[:cut] + genes_b[cut:], genes_b + genes_a)
+        child_2 = repair(genes_b[:cut] + genes_a[cut:], genes_a + genes_b)
+        return child_1, child_2
 
     def _mutate(self, sol: Solution, n: int, rng: random.Random) -> Solution:
         """
@@ -106,12 +124,28 @@ class BaselineGA(BaseAlgorithm):
         t_start = time.perf_counter()
         total_evals = 0
         convergence_history = []
+        fitness_evaluation_history: List[Dict[str, Any]] = []
+        population_history: List[Dict[str, Any]] = []
 
         # ---- Initial Population (Random) ---- #
         print(f"      [BaselineGA] Khởi tạo ngẫu nhiên quần thể N={self.pop_size}...", flush=True)
         pop = problem.create_random_population(self.pop_size, np_rng)
         scores = problem.batch_fitness(pop)
         total_evals += self.pop_size
+        if self.record_history:
+            fitness_evaluation_history.append({
+                "generation": 0,
+                "batch_size": self.pop_size,
+                "fitness": [float(score) for score in scores],
+                "evaluation_type": "monte_carlo",
+            })
+            population_history.append({
+                "generation": 0,
+                "individuals": [
+                    {"seed_set": list(ind.seed_set), "fitness": float(ind.fitness or 0.0)}
+                    for ind in pop.individuals
+                ],
+            })
 
         best_ever = pop.best
         print(f"      [BaselineGA] Hoàn tất t=0 | Best Spread = {best_ever.fitness:.2f} | Đa dạng Jaccard = {pop.diversity_jaccard():.3f}", flush=True)
@@ -160,8 +194,15 @@ class BaselineGA(BaseAlgorithm):
             unevaluated = [i for i, s in enumerate(pop.individuals) if s.fitness is None]
             if unevaluated:
                 batch = [pop.individuals[i] for i in unevaluated]
-                problem.batch_fitness(batch)
+                scores = problem.batch_fitness(batch)
                 total_evals += len(batch)
+                if self.record_history:
+                    fitness_evaluation_history.append({
+                        "generation": gen,
+                        "batch_size": len(batch),
+                        "fitness": [float(score) for score in scores],
+                        "evaluation_type": "monte_carlo",
+                    })
 
             gen_best = pop.best
             if (best_ever.fitness or 0.0) < (gen_best.fitness or 0.0):
@@ -180,6 +221,14 @@ class BaselineGA(BaseAlgorithm):
                 "diversity": pop.diversity_jaccard(),
                 "evaluations": total_evals
             })
+            if self.record_history:
+                population_history.append({
+                    "generation": gen,
+                    "individuals": [
+                        {"seed_set": list(ind.seed_set), "fitness": float(ind.fitness or 0.0)}
+                        for ind in pop.individuals
+                    ],
+                })
 
         t_search_end = time.perf_counter()
 
@@ -190,7 +239,7 @@ class BaselineGA(BaseAlgorithm):
 
         t_total_end = time.perf_counter()
 
-        return AlgorithmResult(
+        result = AlgorithmResult(
             algorithm_name=self.name,
             best_solution=best_ever,
             search_time=t_search_end - t_start,
@@ -206,4 +255,11 @@ class BaselineGA(BaseAlgorithm):
                 "random_seed": seed
             }
         )
+        result.metadata["operator"] = "one_point_crossover_with_repair"
+        result.metadata["final_search_fitness"] = float(best_ever.fitness or 0.0)
+        result.metadata["final_evaluation_type"] = "monte_carlo"
+        if self.record_history:
+            result.metadata["fitness_evaluation_history"] = fitness_evaluation_history
+            result.metadata["population_history"] = population_history
+        return result
 

@@ -574,6 +574,10 @@ class IGA(BaseAlgorithm):
         t_start = time.perf_counter()
         total_evals = 0
         convergence_history: List[Dict[str, Any]] = []
+        diversity_history: List[Dict[str, Any]] = []
+        lie_fitness_history: List[Dict[str, Any]] = []
+        parameter_schedule: List[Dict[str, Any]] = []
+        cataclysmic_events: List[Dict[str, Any]] = []
 
         # Trích xuất CSR structures cho hàm đánh giá nhanh LIE-2
         row_ptr = list(problem.graph.row_ptr())
@@ -627,6 +631,17 @@ class IGA(BaseAlgorithm):
             "crossover_rate": self.p_c_min,
             "evaluations": total_evals,
         })
+        diversity_history.append({
+            "generation": 0,
+            "diversity": float(current_diversity),
+            "threshold": float(self.epsilon_div),
+            "population_size": len(pop),
+        })
+        lie_fitness_history.append({
+            "generation": 0,
+            "best_fitness": float(c_best_lie.fitness or 0.0),
+            "mean_fitness": float(np.mean([s.fitness or 0.0 for s in pop.individuals])),
+        })
 
         # ── Pha 3: Chu trình tiến hóa thích nghi nhanh ────────────────────────
         log_interval = max(1, max_gen // 10)  # Log đều đặn ~10 mốc tiến trình trong quá trình tiến hóa
@@ -657,6 +672,8 @@ class IGA(BaseAlgorithm):
 
                 # Đột biến giải cứu nếu bị trì trệ 3 thế hệ liên tiếp
                 if stagnation_count >= 3:
+                    diversity_before = float(div_val)
+                    population_before = len(pop)
                     self._log(
                         f"[Gen {gen:3d}] ⚡ Kích hoạt Đột biến giải cứu (đa dạng={div_val:.3f} < {self.epsilon_div}, trì trệ {stagnation_count} thế hệ)"
                     )
@@ -681,6 +698,15 @@ class IGA(BaseAlgorithm):
                         rescued_individuals.append(sol_r)
                     pop = Population(rescued_individuals)
                     stagnation_count = 0
+                    cataclysmic_events.append({
+                        "generation": gen,
+                        "trigger": "diversity_below_threshold_and_stagnation",
+                        "diversity_before": diversity_before,
+                        "threshold": float(self.epsilon_div),
+                        "population_size": population_before,
+                        "individuals_rebuilt": self.pop_size - self.elitism,
+                        "diversity_after": float(pop.diversity_jaccard()),
+                    })
 
             # Bước 1: Bảo tồn tuyệt đối nhóm cá thể tinh hoa
             sorted_pop = sorted(pop.individuals, key=lambda s: s.fitness or 0.0, reverse=True)
@@ -749,6 +775,27 @@ class IGA(BaseAlgorithm):
                 "crossover_rate": pc_t,
                 "evaluations": total_evals,
             })
+            diversity_history.append({
+                "generation": gen,
+                "diversity": float(pop.diversity_jaccard()),
+                "threshold": float(self.epsilon_div),
+                "population_size": len(pop),
+            })
+            lie_fitness_history.append({
+                "generation": gen,
+                "best_fitness": float(c_best_lie.fitness or 0.0),
+                "mean_fitness": float(np.mean([s.fitness or 0.0 for s in pop.individuals])),
+            })
+            parameter_schedule.append({
+                "generation": gen,
+                "progress": float(progress),
+                "mutation_rate": float(pm_t),
+                "crossover_rate": float(pc_t),
+                "formula": {
+                    "mutation": "p_m_max - (p_m_max - p_m_min) * generation / max_generations",
+                    "crossover": "p_c_min + (p_c_max - p_c_min) * generation / max_generations",
+                },
+            })
 
         t_search_end = time.perf_counter()
 
@@ -758,15 +805,27 @@ class IGA(BaseAlgorithm):
             f"Pha 4: Sàng lọc {len(final_elite)} cá thể tinh hoa bằng {self.r_final} lượt mô phỏng Monte Carlo (C++ OpenMP)..."
         )
 
-        # Đánh giá chính xác cao bằng C++ Monte Carlo Engine
+        # Đánh giá chính xác cao bằng đúng R_final lượt Monte Carlo.
         best_mc_spread = -1.0
         best_overall_solution = final_elite[0]
+        final_mc_details: List[Dict[str, Any]] = []
 
         for cand_idx, cand in enumerate(final_elite, start=1):
-            # problem.fitness() gọi trực tiếp C++ Evaluator OpenMP
-            mc_spread = problem.fitness(cand)
+            if hasattr(problem.evaluator, "evaluate_replications"):
+                replications = problem.evaluator.evaluate_replications(
+                    list(cand.seed_set), self.r_final
+                )
+                mc_spread = float(np.mean(replications)) if replications else 0.0
+            else:
+                mc_spread = float(problem.fitness(cand))
             cand.fitness = mc_spread
             total_evals += 1
+            final_mc_details.append({
+                "rank": cand_idx,
+                "seed_set": sorted(cand.seed_set),
+                "mc_runs": int(self.r_final),
+                "spread": float(mc_spread),
+            })
             self._log(f"Pha 4: Cá thể tinh hoa #{cand_idx}/{len(final_elite)} -> σ_MC = {mc_spread:.2f}")
             if mc_spread > best_mc_spread:
                 best_mc_spread = mc_spread
@@ -805,7 +864,7 @@ class IGA(BaseAlgorithm):
             f"Hoàn tất! S* = {best_overall_solution.seed_set[:min(k, 8)]}... | σ_MC = {best_mc_spread:.2f} | Thời gian: {t_total_end - t_start:.2f}s"
         )
 
-        return AlgorithmResult(
+        result = AlgorithmResult(
             algorithm_name=self.name,
             best_solution=best_overall_solution,
             search_time=t_search_end - t_start,
@@ -831,3 +890,16 @@ class IGA(BaseAlgorithm):
                 "top_individuals": top_individuals,
             },
         )
+        result.metadata.update({
+            "diversity_history": diversity_history,
+            "lie_fitness_history": lie_fitness_history,
+            "parameter_schedule": parameter_schedule,
+            "cataclysmic_events": cataclysmic_events,
+            "final_monte_carlo_evaluation": {
+                "mc_runs": int(self.r_final),
+                "candidates": final_mc_details,
+                "selected_spread": float(best_mc_spread),
+            },
+            "final_fitness_type": "monte_carlo",
+        })
+        return result
