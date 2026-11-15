@@ -800,7 +800,20 @@ class IGA(BaseAlgorithm):
         t_search_end = time.perf_counter()
 
         # ── Pha 4: Sàng lọc tinh hoa cuối cùng bằng mô phỏng Monte Carlo ──────
-        final_elite = sorted(pop.individuals, key=lambda s: s.fitness or 0.0, reverse=True)[: self.elitism]
+        # Keep the best-so-far candidate explicitly. It may have been found in
+        # an earlier generation and must still be validated after max_gen.
+        final_candidates = [c_best_lie]
+        final_candidates.extend(
+            sorted(pop.individuals, key=lambda s: s.fitness or 0.0, reverse=True)
+        )
+        unique_candidates = []
+        seen_candidates = set()
+        for candidate in final_candidates:
+            signature = tuple(sorted(candidate.seed_set))
+            if signature not in seen_candidates:
+                seen_candidates.add(signature)
+                unique_candidates.append(candidate)
+        final_elite = unique_candidates[: self.elitism]
         self._log(
             f"Pha 4: Sàng lọc {len(final_elite)} cá thể tinh hoa bằng {self.r_final} lượt mô phỏng Monte Carlo (C++ OpenMP)..."
         )
@@ -860,6 +873,13 @@ class IGA(BaseAlgorithm):
                     break
 
         t_total_end = time.perf_counter()
+        completed_generations = len(convergence_history) - 1
+        if completed_generations >= max_gen:
+            termination_reason = "max_generations_reached"
+        elif total_evals >= budget:
+            termination_reason = "evaluation_budget_reached"
+        else:
+            termination_reason = "completed"
         self._log(
             f"Hoàn tất! S* = {best_overall_solution.seed_set[:min(k, 8)]}... | σ_MC = {best_mc_spread:.2f} | Thời gian: {t_total_end - t_start:.2f}s"
         )
@@ -873,7 +893,12 @@ class IGA(BaseAlgorithm):
             metadata={
                 "total_time": t_total_end - t_start,
                 "pop_size": self.pop_size,
-                "generations_completed": len(convergence_history) - 1,
+                "generations_completed": completed_generations,
+                "termination_reason": termination_reason,
+                "best_solution_at_termination": {
+                    "seed_set": list(best_overall_solution.seed_set),
+                    "fitness": float(best_overall_solution.fitness or 0.0),
+                },
                 "p_c_min": self.p_c_min,
                 "p_c_max": self.p_c_max,
                 "p_m_min": self.p_m_min,

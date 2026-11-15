@@ -252,6 +252,43 @@ def _summary(values: Iterable[float]) -> Dict[str, Any]:
     }
 
 
+def _seed_set_consistency(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Describe whether independent runs selected the same final seed set."""
+    if not records:
+        return {
+            "count": 0,
+            "unique_seed_sets": 0,
+            "all_runs_same": None,
+            "most_frequent_seed_set": None,
+            "most_frequent_count": 0,
+            "best_run_id": None,
+            "best_run_seed_set": None,
+            "best_run_spread": None,
+        }
+
+    seed_sets = [
+        tuple(int(node) for node in record["seed_set"])
+        for record in records
+    ]
+    frequencies: Dict[tuple[int, ...], int] = {}
+    for seed_set in seed_sets:
+        frequencies[seed_set] = frequencies.get(seed_set, 0) + 1
+    most_frequent = max(frequencies, key=frequencies.get)
+    best_index, best_record = max(
+        enumerate(records, start=1), key=lambda item: item[1]["final_spread"]
+    )
+    return {
+        "count": len(records),
+        "unique_seed_sets": len(frequencies),
+        "all_runs_same": len(frequencies) == 1,
+        "most_frequent_seed_set": list(most_frequent),
+        "most_frequent_count": frequencies[most_frequent],
+        "best_run_id": int(best_record.get("run_id", best_index)),
+        "best_run_seed_set": list(best_record["seed_set"]),
+        "best_run_spread": float(best_record["final_spread"]),
+    }
+
+
 def _statistical_tests(run_records: List[Dict[str, Any]]) -> Dict[str, Any]:
     algorithms = sorted(
         {algorithm for record in run_records for algorithm in record["algorithms"]}
@@ -597,6 +634,16 @@ def run_benchmark(
                     },
                     "diffusion_history": diffusion_history,
                 }
+                if "termination_reason" in result.metadata:
+                    algorithm_record["termination"] = {
+                        "reason": result.metadata["termination_reason"],
+                        "generations_completed": result.metadata.get(
+                            "generations_completed"
+                        ),
+                        "best_solution_at_termination": result.metadata.get(
+                            "best_solution_at_termination"
+                        ),
+                    }
                 if record_mc_details:
                     algorithm_record["validation_mc_details"] = {
                         "random_seed": validation_seed,
@@ -640,6 +687,7 @@ def run_benchmark(
             "mc_simulations": _summary(
                 item["evaluations"]["search_mc_simulations"] for item in records
             ),
+            "seed_set_consistency": _seed_set_consistency(records),
         }
 
     comparison = {

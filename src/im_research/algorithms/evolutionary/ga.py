@@ -236,6 +236,13 @@ class BaselineGA(BaseAlgorithm):
         print(f"      [BaselineGA] Hoàn tất tiến hóa! Đánh giá nghiệm cuối cùng...", flush=True)
         best_ever.fitness = problem.fitness(best_ever)
         total_evals += 1
+        completed_generations = len(convergence_history) - 1
+        if completed_generations >= max_gen:
+            termination_reason = "max_generations_reached"
+        elif total_evals >= budget:
+            termination_reason = "evaluation_budget_reached"
+        else:
+            termination_reason = "completed"
 
         t_total_end = time.perf_counter()
 
@@ -248,7 +255,12 @@ class BaselineGA(BaseAlgorithm):
             metadata={
                 "total_time": t_total_end - t_start,
                 "pop_size": self.pop_size,
-                "generations_completed": len(convergence_history) - 1,
+                "generations_completed": completed_generations,
+                "termination_reason": termination_reason,
+                "best_solution_at_termination": {
+                    "seed_set": list(best_ever.seed_set),
+                    "fitness": float(best_ever.fitness or 0.0),
+                },
                 "crossover_rate": self.crossover_rate,
                 "mutation_rate": self.mutation_rate,
                 "elitism": self.elitism,
